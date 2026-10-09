@@ -1,7 +1,7 @@
-"""Monitor disponibilità OVH Eco + ordine automatico.
+"""Monitor disponibilità OVH Eco + ordine automatico, con web UI.
 
 Uso:
-  python -m app.main               ciclo 24/7
+  python -m app.main               ciclo 24/7 + web UI (porta WEB_PORT, default 8765)
   python -m app.main --check       verifica catalogo/disponibilità (e credenziali se presenti), poi esce
   python -m app.main --test-cart [dc]
                                    esegue il flusso carrello + anteprima checkout anche senza stock
@@ -10,93 +10,49 @@ Uso:
 from __future__ import annotations
 
 import logging
+import os
 import random
 import signal
 import sys
-import threading
 import time
 from datetime import datetime
 
 import requests
 
+from . import actions
 from . import config as config_mod
 from . import logsetup
 from .availability import AvailabilityClient, Offer, RateLimited, available_offers
 from .catalog import CatalogProvider
+from .hub import Hub, HubLogHandler, Runtime
 from .notifier import Notifier
 from .state import State
 
 log = logging.getLogger("ovh-ks-sniper")
-_stop = False
-_stop_event = threading.Event()
 
 
-def _on_signal(signum, _frame):
-    global _stop
-    _stop = True
-    _stop_event.set()
-    log.info("Segnale %s ricevuto, arresto...", signum)
+class _Halt(Exception):
+    pass
 
 
-def sleep_with_heartbeat(state: State, seconds: float) -> None:
-    end = time.monotonic() + seconds
-    while not _stop:
-        state.beat()
-        left = end - time.monotonic()
-        if left <= 0:
-            return
-        _stop_event.wait(min(15, left))
+class _Locked(Exception):
+    pass
 
 
-def idle_while(state: State, predicate, what: str) -> None:
-    """Resta fermo (healthy) finché predicate() è vero, es. lock o halt presenti."""
-    log.warning("In pausa: %s. Rimuovi il file per riprendere.", what)
-    while not _stop and predicate():
-        sleep_with_heartbeat(state, 60)
-    if not _stop:
-        log.warning("%s rimosso: riprendo il monitoraggio.", what)
+class _Reload(Exception):
+    pass
 
 
-def _transient(e: Exception) -> bool:
-    """Errore di rete/5xx: va ritentato, non è un problema di credenziali."""
-    import ovh.exceptions as ovhx
-
-    if isinstance(e, (ovhx.HTTPError, ovhx.NetworkError, ovhx.InvalidResponse)):
-        return True
-    status = getattr(getattr(e, "response", None), "status_code", None)
-    return status is None or status >= 500
+def _session() -> requests.Session:
+    s = requests.Session()
+    s.headers["User-Agent"] = "ovh-ks-sniper/1.0"
+    return s
 
 
-def check_account(cfg, client, notifier: Notifier) -> bool:
-    """Verifica credenziali e metodo di pagamento predefinito. False = non si può ordinare.
-
-    Gli errori transitori (rete assente all'avvio, 5xx) vengono rilanciati: il chiamante riprova.
-    """
-    import ovh.exceptions as ovhx
-
-    try:
-        client.get("/me")
-        log.info("Autenticazione API OVH OK")
-    except ovhx.APIError as e:
-        if _transient(e):
-            raise
-        log.error("Autenticazione API OVH fallita: %s", type(e).__name__)
-        return False
-    try:
-        methods = client.get("/me/payment/method", default=True)
-    except ovhx.APIError as e:
-        if _transient(e):
-            raise
-        log.error("Lettura metodi di pagamento fallita: %s", type(e).__name__)
-        return False
-    if not methods:
-        log.error("Nessun metodo di pagamento PREDEFINITO sull'account: l'ordine automatico non può essere pagato.")
-        return False
-    log.info("Metodo di pagamento predefinito presente")
-    return True
-
-
-def run_check(cfg, catalogs: CatalogProvider, avail: AvailabilityClient) -> int:
+# --- riga di comando -------------------------------------------------------------------
+def run_check(cfg) -> int:
+    catalogs = CatalogProvider(cfg.api_base, cfg.subsidiary, cfg.catalog_refresh, _session())
+    avail = AvailabilityClient(cfg.api_base, _session())
     cat = catalogs.get()
     for plan in cfg.plan_codes:
         entries = avail.fetch(plan)
@@ -110,120 +66,157 @@ def run_check(cfg, catalogs: CatalogProvider, avail: AvailabilityClient) -> int:
             dcs = ", ".join(f"{d['datacenter']}={d['availability']}" for d in e.get("datacenters") or [])
             print(f"    disponibilità: {dcs}")
     if cfg.has_credentials:
-        from .orderer import make_client
-
-        print()
-        ok = check_account(cfg, make_client(cfg), Notifier("", ""))
-        print("Account pronto per ordinare" if ok else "Account NON pronto per ordinare (vedi errori sopra)")
+        res = actions.check_account_safe(cfg)
+        print(f"\n{res['message']}")
+        print("Account pronto per ordinare" if res["ok"] else "Account NON pronto per ordinare")
     else:
         print("\nCredenziali OVH non impostate: salto la verifica dell'account.")
     return 0
 
 
-def run_test_cart(cfg, catalogs, avail, state, dc: str | None) -> int:
-    from .orderer import CartManager, Orderer, make_client
-
+def run_test_cart(cfg, state: State, dc: str | None) -> int:
     if not cfg.has_credentials:
-        log.error("--test-cart richiede OVH_APPLICATION_KEY, OVH_APPLICATION_SECRET e OVH_CONSUMER_KEY")
+        log.error("--test-cart richiede Application Key, Application Secret e Consumer Key")
         return 2
-    client = make_client(cfg)
-    cat = catalogs.get()
-    dc = (dc or cfg.datacenters[0]).lower()
-    for plan in cfg.plan_codes:
-        for e in avail.fetch(plan):
-            cand = cat.evaluate(e, cfg.min_storage_tb, cfg.max_monthly_price, cfg.max_first_payment)
-            if not cand.ok:
-                continue
-            offer = Offer(entry=e, datacenter=dc, availability="test")
-            log.info("Test carrello (senza stock, nessun checkout): %s", offer)
-            orderer = Orderer(cfg, client, catalogs, avail, state, CartManager(cfg, client))
-            res = orderer.attempt(offer, cand, force_dry_run=True)
-            log.info("Esito test: %s — %s", res.kind, res.message)
-            return 0 if res.kind == "dry_run" else 1
-    log.error("Nessuna combinazione rispetta i requisiti nel catalogo: niente da testare")
-    return 1
+    catalogs = CatalogProvider(cfg.api_base, cfg.subsidiary, cfg.catalog_refresh, _session())
+    _, _, res = actions.test_cart(cfg, catalogs, AvailabilityClient(cfg.api_base, _session()), state, dc)
+    return 0 if res.kind == "dry_run" else 1
 
 
+# --- servizio ----------------------------------------------------------------------------
 def main(argv: list[str]) -> int:
+    data_dir = config_mod.data_dir()
+    hub = Hub(data_dir)
     try:
         cfg = config_mod.load()
+        cfg_error = None
     except config_mod.ConfigError as e:
-        print(f"Errore di configurazione: {e}", file=sys.stderr)
-        return 2
+        cfg, cfg_error = None, str(e)
+    redact = logsetup.setup(data_dir, cfg.secrets if cfg else [], extra=[HubLogHandler(hub)])
+    state = State(data_dir)
 
-    logsetup.setup(cfg.data_dir, cfg.secrets)
-    signal.signal(signal.SIGTERM, _on_signal)
-    signal.signal(signal.SIGINT, _on_signal)
-
-    state = State(cfg.data_dir)
-    session = requests.Session()
-    session.headers["User-Agent"] = "ovh-ks-sniper/1.0"
-    catalogs = CatalogProvider(cfg.api_base, cfg.subsidiary, cfg.catalog_refresh, session)
-    avail = AvailabilityClient(cfg.api_base, session)
-
-    if "--check" in argv:
-        return run_check(cfg, catalogs, avail)
-    if "--test-cart" in argv:
+    if "--check" in argv or "--test-cart" in argv:
+        if cfg is None:
+            print(f"Errore di configurazione: {cfg_error}", file=sys.stderr)
+            return 2
+        if "--check" in argv:
+            return run_check(cfg)
         i = argv.index("--test-cart")
-        return run_test_cart(cfg, catalogs, avail, state, argv[i + 1] if len(argv) > i + 1 else None)
+        return run_test_cart(cfg, state, argv[i + 1] if len(argv) > i + 1 else None)
 
-    mode = "DRY-RUN" if cfg.dry_run else "LIVE"
-    notifier = Notifier(cfg.telegram_token, cfg.telegram_chat_id, prefix=f"[OVH {mode}] ")
-    log.info("Avvio: %s", cfg)
-    if not cfg.dry_run:
-        log.warning("MODALITÀ LIVE: al primo restock valido verrà effettuato un ordine REALE con pagamento automatico.")
+    rt = Runtime(hub, state)
+    signal.signal(signal.SIGTERM, lambda *_: rt.request_stop())
+    signal.signal(signal.SIGINT, lambda *_: rt.request_stop())
 
+    if (os.getenv("WEB_ENABLED") or "true").strip().lower() not in ("0", "false", "no", "off"):
+        from . import web
+
+        web.start(rt, int(os.getenv("WEB_PORT") or 8765))
+
+    notifier = Notifier()
     stats = {"start": datetime.now(), "polls": 0, "errors": 0, "last_error": "", "restocks": 0}
-    while not _stop:
-        state.beat()
+    while not rt.stop:
+        rt.reload_requested = False
+        try:
+            cfg = config_mod.load()
+        except config_mod.ConfigError as e:
+            log.error("Configurazione non valida: %s. Correggila dalla web UI o nel .env.", e)
+            hub.update(state="config_error", error=str(e))
+            _idle(rt, lambda: True)
+            continue
+        rt.cfg = cfg
+        redact.secrets[:] = cfg.secrets
+        mode = "DRY-RUN" if cfg.dry_run else "LIVE"
+        notifier.configure(cfg.telegram_token, cfg.telegram_chat_id, prefix=f"[OVH {mode}] ")
+        hub.update(mode=mode, paused=cfg.paused, error=None, lock=state.lock(), halt=state.halt(),
+                   datacenters=cfg.datacenters, plans=cfg.plan_codes, poll_interval=cfg.poll_interval)
+        log.info("Configurazione: %s", cfg)
+
         if state.is_locked():
             info = state.lock() or {}
             log.warning("Lock ordine presente (%s): nessun nuovo ordine.", info)
-            idle_while(state, state.is_locked, str(state.lock_path))
+            hub.update(state="locked", lock=info)
+            _idle(rt, state.is_locked, f"{state.lock_path} presente")
+            hub.update(lock=None)
             continue
         if state.halt():
-            idle_while(state, lambda: state.halt() is not None, str(state.halt_path))
+            hub.update(state="halted", halt=state.halt())
+            _idle(rt, lambda: state.halt() is not None, f"{state.halt_path} presente")
+            hub.update(halt=None)
             continue
+        if cfg.paused:
+            log.info("Monitoraggio in pausa (impostazione PAUSED)")
+            hub.update(state="paused")
+            _idle(rt, lambda: True)
+            continue
+        if not cfg.dry_run:
+            log.warning("MODALITÀ LIVE: al primo restock valido verrà effettuato un ordine REALE con pagamento automatico.")
         try:
-            loop(cfg, state, session, catalogs, avail, notifier, stats)
+            loop(cfg, rt, notifier, stats)
+        except _Reload:
+            log.info("Configurazione cambiata: ricarico")
         except _Halt as h:
             state.write_halt(str(h))
             notifier.send(f"⛔ Fermo: {h}")
             log.error("Fermo per errore bloccante: %s", h)
-            sleep_with_heartbeat(state, 60)  # nel caso il file halt non sia scrivibile
+            hub.update(state="halted", halt=state.halt(), attempt=None)
+            rt.sleep(60)  # nel caso il file halt non sia scrivibile
         except _Locked:
-            pass
+            hub.update(attempt=None)
         except Exception:
             log.exception("Errore inatteso nel ciclo principale: riparto tra 60s")
-            sleep_with_heartbeat(state, 60)
+            hub.update(state="error", attempt=None)
+            rt.sleep(60)
     notifier.flush()
     return 0
 
 
-class _Halt(Exception):
-    pass
+def _idle(rt: Runtime, predicate, what: str = "") -> None:
+    """Resta fermo (healthy) finché predicate() è vero o finché arriva un reload/stop."""
+    if what:
+        log.warning("In pausa: %s. Rimuovilo (anche dalla web UI) per riprendere.", what)
+    while not rt.stop and not rt.reload_requested and predicate():
+        rt.poll_now = False
+        rt.sleep(60)
 
 
-class _Locked(Exception):
-    pass
-
-
-def loop(cfg, state: State, session, catalogs: CatalogProvider, avail: AvailabilityClient,
-         notifier: Notifier, stats: dict) -> None:
-    """Ciclo di polling. Esce con _Halt (errore bloccante) o _Locked (ordine fatto)."""
+def loop(cfg, rt: Runtime, notifier: Notifier, stats: dict) -> None:
+    """Ciclo di polling. Esce con _Halt (errore bloccante), _Locked (ordine fatto) o _Reload."""
     from .orderer import CartManager, Orderer, make_client
 
-    client = carts = orderer = None
+    hub, state = rt.hub, rt.state
+    session = _session()
+    catalogs = CatalogProvider(cfg.api_base, cfg.subsidiary, cfg.catalog_refresh, session)
+    avail = AvailabilityClient(cfg.api_base, session)
+    rt.catalogs, rt.avail = catalogs, avail
+    hub.update(state="avvio", attempt=None)
+
+    carts = orderer = None
     if cfg.has_credentials:
         client = make_client(cfg)
-        if not check_account(cfg, client, notifier) and not cfg.dry_run:
-            raise _Halt("credenziali non valide o nessun metodo di pagamento predefinito")
+        try:
+            ok, msg = actions.check_account(client)
+        except Exception as e:
+            hub.update(account={"ok": False, "message": f"Errore temporaneo: {type(e).__name__}",
+                                "checked_at": time.time()})
+            raise
+        hub.update(account={"ok": ok, "message": msg, "checked_at": time.time()})
+        (log.info if ok else log.error)(msg)
+        if not ok and not cfg.dry_run:
+            raise _Halt(f"account non pronto: {msg}")
         carts = CartManager(cfg, client)
         carts.ensure_ready()
-        orderer = Orderer(cfg, client, catalogs, avail, state, carts)
+        hub.update(cart=carts.info())
+
+        def on_step(step: str) -> None:
+            hub.update(attempt={**(hub.snapshot().get("attempt") or {}), "step": step})
+
+        orderer = Orderer(cfg, client, catalogs, avail, state, carts, on_step=on_step)
     elif not cfg.dry_run:
-        raise _Halt("DRY_RUN=false ma credenziali OVH mancanti")
+        raise _Halt("DRY_RUN disattivato ma credenziali OVH mancanti")
     else:
+        hub.update(account={"ok": False, "message": "Credenziali OVH non impostate: solo monitoraggio",
+                            "checked_at": time.time()}, cart=None)
         log.warning("Credenziali OVH assenti: solo monitoraggio (nessun carrello di prova).")
 
     try:
@@ -233,6 +226,7 @@ def loop(cfg, state: State, session, catalogs: CatalogProvider, avail: Availabil
 
     notifier.send(f"Avviato. Piani {', '.join(cfg.plan_codes)}; DC {', '.join(cfg.datacenters)}; "
                   f"polling {cfg.poll_interval}s.")
+    hub.update(state="monitoring")
     backoff = 0
     seen: set[tuple[str, str]] = set()
     rejected_seen: set[tuple[str, str]] = set()  # già loggate come non conformi
@@ -241,23 +235,32 @@ def loop(cfg, state: State, session, catalogs: CatalogProvider, avail: Availabil
     prep_failures = 0
     last_heartbeat_day = None
 
-    while not _stop:
+    while True:
         state.beat()
+        if rt.stop:
+            return
+        if rt.reload_requested:
+            raise _Reload()
         if state.is_locked():
             raise _Locked()
+        rt.poll_now = False
 
         # 1) Polling disponibilità -------------------------------------------------
         offers: list[Offer] = []
+        entries_all: list[dict] = []
         try:
             for plan in cfg.plan_codes:
-                offers += available_offers(avail.fetch(plan), cfg.datacenters)
+                entries = avail.fetch(plan)
+                entries_all += entries
+                offers += available_offers(entries, cfg.datacenters)
             stats["polls"] += 1
             backoff = 0
         except RateLimited as e:
             backoff += 1
             wait = e.retry_after or min(cfg.poll_interval * 2 ** backoff, 900)
             log.warning("HTTP 429 dall'API disponibilità: attendo %.0fs", wait)
-            sleep_with_heartbeat(state, wait + random.uniform(0, 5))
+            hub.update(state="backoff", next_poll=time.time() + wait)
+            rt.sleep(wait + random.uniform(0, 5))
             continue
         except (requests.RequestException, ValueError) as e:
             backoff += 1
@@ -265,8 +268,18 @@ def loop(cfg, state: State, session, catalogs: CatalogProvider, avail: Availabil
             stats["last_error"] = type(e).__name__
             wait = min(cfg.poll_interval * 2 ** backoff, 900)
             log.warning("Errore polling (%s): nuovo tentativo tra %.0fs", type(e).__name__, wait)
-            sleep_with_heartbeat(state, wait + random.uniform(0, 5))
+            hub.update(state="backoff", next_poll=time.time() + wait, errors=stats["errors"],
+                       last_error=stats["last_error"])
+            rt.sleep(wait + random.uniform(0, 5))
             continue
+
+        try:
+            cat = catalogs.get()
+        except Exception as e:
+            log.error("Catalogo non disponibile, impossibile verificare i requisiti: %s", e)
+            cat = None
+        hub.update(state="monitoring", last_poll=time.time(), polls=stats["polls"], errors=stats["errors"],
+                   offers=actions.matrix(cfg, cat, entries_all))
 
         current = {o.key for o in offers}
         new = [o for o in offers if o.key not in seen]
@@ -280,18 +293,14 @@ def loop(cfg, state: State, session, catalogs: CatalogProvider, avail: Availabil
             log.info("Non più disponibile: %s", ", ".join(f"{f} @ {d}" for f, d in gone))
         if new:
             stats["restocks"] += 1
+            hub.update(restocks=stats["restocks"], last_restock=time.time())
             log.warning("RESTOCK: %s", "; ".join(map(str, new)))
             notifier.send("🟢 Restock: " + "; ".join(map(str, new)))
 
         # 2) Tentativo d'ordine sulle offerte valide ---------------------------------
-        if offers:
-            try:
-                cat = catalogs.get()
-            except Exception as e:
-                log.error("Catalogo non disponibile, impossibile verificare i requisiti: %s", e)
-                cat = None
+        if offers and cat is not None:
             evaluated = []
-            for o in offers if cat else []:
+            for o in offers:
                 cand = cat.evaluate(o.entry, cfg.min_storage_tb, cfg.max_monthly_price, cfg.max_first_payment)
                 if cand.ok:
                     evaluated.append((o, cand))
@@ -313,18 +322,26 @@ def loop(cfg, state: State, session, catalogs: CatalogProvider, avail: Availabil
                 if cfg.dry_run and time.time() - dry_run_done.get(offer.key, 0) < cfg.dry_run_cooldown:
                     continue
                 log.warning("Tentativo d'ordine: %s @ %s", cand.summary(), offer.datacenter)
-                res = orderer.attempt(offer, cand)
+                hub.update(attempt={"fqn": cand.fqn, "dc": offer.datacenter, "step": "avvio",
+                                    "started": time.time(), "dry_run": cfg.dry_run})
+                with rt.order_mutex:
+                    res = orderer.attempt(offer, cand)
                 log.info("Esito: %s — %s", res.kind, res.message)
+                hub.update(attempt=None, cart=carts.info() if carts else None)
+                hub.add_attempt({"fqn": cand.fqn, "dc": offer.datacenter, "kind": res.kind,
+                                 "message": res.message, "details": res.details, "dry_run": cfg.dry_run})
 
                 if res.kind == "ordered":
                     d = res.details
                     notifier.send(f"✅ ORDINE EFFETTUATO #{d.get('orderId')} — {res.message}. "
                                   f"Importo {d.get('amount_ttc')}€. {d.get('url') or ''}")
                     notifier.flush()
+                    hub.update(state="locked", lock=state.lock())
                     raise _Locked()
                 if res.kind == "uncertain":
                     notifier.send(f"⚠️ {res.message}. Lock scritto per sicurezza.")
                     notifier.flush()
+                    hub.update(state="locked", lock=state.lock())
                     raise _Locked()
                 if res.kind == "dry_run":
                     dry_run_done[offer.key] = time.time()
@@ -350,6 +367,7 @@ def loop(cfg, state: State, session, catalogs: CatalogProvider, avail: Availabil
         # 3) Manutenzione fuori dal percorso critico ---------------------------------
         if carts is not None:
             carts.ensure_ready()
+            hub.update(cart=carts.info())
         catalogs.refresh_if_stale()
 
         now = datetime.now()
@@ -360,7 +378,8 @@ def loop(cfg, state: State, session, catalogs: CatalogProvider, avail: Availabil
                           f"restock visti: {stats['restocks']}, errori: {stats['errors']}"
                           + (f" (ultimo: {stats['last_error']})" if stats["last_error"] else ""))
 
-        sleep_with_heartbeat(state, cfg.poll_interval)
+        hub.update(next_poll=time.time() + cfg.poll_interval)
+        rt.sleep(cfg.poll_interval)
 
 
 if __name__ == "__main__":

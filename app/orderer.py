@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
+from typing import Callable
 from datetime import datetime, timedelta, timezone
 
 import ovh
@@ -70,6 +71,11 @@ class CartManager:
         self.cart_id: str | None = None
         self.expire: datetime | None = None
 
+    def info(self) -> dict | None:
+        if not self.cart_id or not self.expire:
+            return None
+        return {"id": self.cart_id, "expire": self.expire.isoformat()}
+
     def create(self) -> str:
         expire = datetime.now(timezone.utc) + timedelta(hours=self.cfg.cart_ttl_hours)
         cart = self.client.post(
@@ -111,13 +117,15 @@ class CartManager:
 
 class Orderer:
     def __init__(self, cfg: Config, client: ovh.Client, catalogs: CatalogProvider,
-                 avail: AvailabilityClient, state: State, carts: CartManager):
+                 avail: AvailabilityClient, state: State, carts: CartManager,
+                 on_step: Callable[[str], None] | None = None):
         self.cfg = cfg
         self.client = client
         self.catalogs = catalogs
         self.avail = avail
         self.state = state
         self.carts = carts
+        self.on_step = on_step or (lambda step: None)
 
     # ------------------------------------------------------------------------------
     def attempt(self, offer: Offer, cand: Candidate, force_dry_run: bool = False) -> Result:
@@ -125,6 +133,7 @@ class Orderer:
         t0 = time.monotonic()
         cart_id: str | None = None
         try:
+            self.on_step("carrello")
             cart_id = self.carts.take()
             preview = self._build_cart(cart_id, offer, cand)
         except _Reject as r:
@@ -159,6 +168,7 @@ class Orderer:
             return Result("dry_run", desc, details)
 
         # ---------------------------- CHECKOUT REALE -------------------------------
+        self.on_step("checkout")
         log.warning("CHECKOUT: %s", desc)
         try:
             order = self.client.post(
@@ -208,10 +218,12 @@ class Orderer:
         catalog = self.catalogs.get()
         base = f"/order/cart/{cart_id}"
 
+        self.on_step("server")
         item = c.post(f"{base}/eco", planCode=cand.plan_code, duration="P1M", pricingMode="default", quantity=1)
         item_id = item["itemId"]
 
         # Opzioni: devono esistere nel carrello e coprire tutte le famiglie obbligatorie.
+        self.on_step("opzioni")
         options = c.get(f"{base}/eco/options", planCode=cand.plan_code)
         by_plan = {o.get("planCode"): o for o in options}
         mandatory = {o.get("family") for o in options if o.get("mandatory")}
@@ -228,6 +240,7 @@ class Orderer:
                    pricingMode="default", quantity=1)
 
         # Configurazioni: label verificate con requiredConfiguration + catalogo.
+        self.on_step("configurazione")
         required = c.get(f"{base}/item/{item_id}/requiredConfiguration")
         known = {r.get("label") for r in required} | set(catalog.config_values(cand.plan_code))
         wanted = {
@@ -249,6 +262,7 @@ class Orderer:
             c.post(f"{base}/item/{item_id}/configuration", label=label, value=value)
 
         # Anteprima checkout: verifica prezzi reali (requisito 2) e storage (requisito 1).
+        self.on_step("anteprima")
         preview = c.get(f"{base}/checkout")
         with_tax = (preview.get("prices") or {}).get("withTax") or {}
         first, currency = with_tax.get("value"), with_tax.get("currencyCode")

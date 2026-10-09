@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Storina · KS-STOR</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='5' width='26' height='8' rx='2' fill='%232f6fed'/%3E%3Crect x='3' y='17' width='26' height='8' rx='2' fill='%232f6fed' opacity='.6'/%3E%3Ccircle cx='8' cy='9' r='1.6' fill='%23fff'/%3E%3Ccircle cx='8' cy='21' r='1.6' fill='%23fff'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#f5f6f8;--panel:#fff;--panel2:#f0f2f5;--text:#16181d;--muted:#5d6472;--line:#e2e5ea;
+  --accent:#2f6fed;--accent-ink:#fff;--ok:#16834a;--ok-bg:#e3f5ea;--warn:#a15c00;--warn-bg:#fff1dc;
+  --bad:#c0322b;--bad-bg:#fde7e6;--info:#2459c9;--info-bg:#e5edfd;--neutral-bg:#eceef2;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --radius:10px;--shadow:0 1px 2px rgba(16,24,40,.06),0 1px 3px rgba(16,24,40,.08);
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#0f1115;--panel:#171a21;--panel2:#1d212a;--text:#e7e9ee;--muted:#9aa2b1;--line:#2a2f3a;
+    --accent:#5b8cff;--ok:#4fd18b;--ok-bg:#12301f;--warn:#f2b24c;--warn-bg:#352711;--bad:#ff6b63;--bad-bg:#3a1513;
+    --info:#7ea6ff;--info-bg:#17264a;--neutral-bg:#252a35;--shadow:none}
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+a{color:var(--accent)}
+button,input,select{font:inherit;color:inherit}
+.hidden{display:none!important}
+.muted{color:var(--muted)}
+.mono{font-family:var(--mono);font-size:12.5px}
+header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line)}
+.bar{max-width:1240px;margin:0 auto;padding:10px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.brand{font-weight:700;font-size:16px;display:flex;align-items:center;gap:8px;margin-right:6px}
+.brand small{font-weight:500;color:var(--muted)}
+nav{display:flex;gap:4px}
+nav button{border:0;background:none;padding:7px 12px;border-radius:8px;cursor:pointer;color:var(--muted);font-weight:600}
+nav button.active{background:var(--panel2);color:var(--text)}
+.spacer{flex:1}
+.badge{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:600;background:var(--neutral-bg);color:var(--muted);white-space:nowrap}
+.badge.ok{background:var(--ok-bg);color:var(--ok)}.badge.warn{background:var(--warn-bg);color:var(--warn)}
+.badge.bad{background:var(--bad-bg);color:var(--bad)}.badge.info{background:var(--info-bg);color:var(--info)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.dot.on{background:var(--ok);box-shadow:0 0 0 3px var(--ok-bg)}.dot.off{background:var(--bad)}
+main{max-width:1240px;margin:0 auto;padding:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:14px}
+.card h3{margin:0 0 4px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.card .big{font-size:20px;font-weight:700}
+.section{margin-top:18px}
+.section-head{display:flex;align-items:center;gap:10px;margin:0 0 8px;flex-wrap:wrap}
+.section-head h2{font-size:15px;margin:0}
+.tablewrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+table{border-collapse:collapse;width:100%;min-width:640px}
+th,td{padding:9px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;color:var(--muted);font-weight:600;background:var(--panel2)}
+tr:last-child td{border-bottom:0}
+td:first-child{min-width:220px}
+td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.av{display:inline-block;min-width:74px;text-align:center;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600}
+.av.yes{background:var(--ok-bg);color:var(--ok)}.av.no{background:var(--neutral-bg);color:var(--muted)}
+.av.soon{background:var(--warn-bg);color:var(--warn)}
+.btn{border:1px solid var(--line);background:var(--panel);padding:7px 13px;border-radius:8px;cursor:pointer;font-weight:600}
+.btn:hover{background:var(--panel2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn:disabled{opacity:.55;cursor:default}
+.banner{border-radius:var(--radius);padding:12px 14px;margin-bottom:12px;display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.banner.bad{background:var(--bad-bg);color:var(--bad)}.banner.ok{background:var(--ok-bg);color:var(--ok)}
+.banner.warn{background:var(--warn-bg);color:var(--warn)}.banner.info{background:var(--info-bg);color:var(--info)}
+.banner .grow{flex:1;min-width:220px}
+.banner pre{margin:6px 0 0;white-space:pre-wrap;font-family:var(--mono);font-size:12px;color:var(--text)}
+.steps{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.step{padding:4px 10px;border-radius:999px;font-size:12px;font-weight:600;background:var(--neutral-bg);color:var(--muted)}
+.step.done{background:var(--ok-bg);color:var(--ok)}.step.now{background:var(--info-bg);color:var(--info);animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.55}}
+.actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+select,input[type=text],input[type=password],input[type=number]{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:7px 10px;min-width:0}
+input:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px}
+fieldset{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);margin:0 0 14px;padding:6px 16px 14px;box-shadow:var(--shadow)}
+legend{font-weight:700;padding:0 6px}
+.field{display:grid;grid-template-columns:260px 1fr;gap:6px 16px;padding:10px 0;border-bottom:1px solid var(--line);align-items:start}
+.field:last-child{border-bottom:0}
+.field label{font-weight:600;padding-top:7px}
+.field .help{font-size:12px;color:var(--muted);margin-top:4px}
+.field .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.field input[type=text],.field input[type=password],.field input[type=number],.field select{width:100%;max-width:420px}
+.src{font-size:11px;padding:1px 7px;border-radius:999px;background:var(--neutral-bg);color:var(--muted)}
+.src.ui{background:var(--info-bg);color:var(--info)}
+.linkbtn{border:0;background:none;color:var(--accent);cursor:pointer;padding:0;font-size:12px}
+.switch{position:relative;width:42px;height:24px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.switch span{position:absolute;inset:0;background:var(--line);border-radius:999px;cursor:pointer;transition:.15s}
+.switch span:before{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.15s}
+.switch input:checked+span{background:var(--accent)}
+.switch input:checked+span:before{transform:translateX(18px)}
+.savebar{position:sticky;bottom:0;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px;display:flex;gap:10px;align-items:center;box-shadow:0 -2px 10px rgba(0,0,0,.06)}
+.logbox{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);height:calc(100vh - 210px);min-height:300px;overflow:auto;padding:8px 0;font-family:var(--mono);font-size:12.5px}
+.logline{padding:1px 12px;white-space:pre-wrap;word-break:break-word}
+.logline .t{color:var(--muted);margin-right:8px}
+.logline.WARNING{color:var(--warn)}.logline.ERROR,.logline.CRITICAL{color:var(--bad)}
+.center{min-height:100vh;display:grid;place-items:center;padding:16px}
+.login{width:100%;max-width:360px}
+.login h1{font-size:18px;margin:0 0 4px}
+.login input{width:100%;margin:12px 0}
+.err{color:var(--bad);font-size:13px;min-height:18px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:grid;place-items:center;z-index:20;padding:16px}
+.modal .card{max-width:460px;width:100%}
+.empty{padding:22px;text-align:center;color:var(--muted)}
+.reasons{font-size:12px;color:var(--muted);margin-top:2px}
+.toast{position:fixed;right:16px;bottom:16px;z-index:30;display:flex;flex-direction:column;gap:8px}
+.toast div{background:var(--text);color:var(--bg);padding:9px 14px;border-radius:8px;max-width:380px;box-shadow:var(--shadow)}
+@media (max-width:720px){.field{grid-template-columns:1fr}.field label{padding-top:0}.brand small{display:none}}
+</style>
+</head>
+<body>
+
+<div id="loginView" class="center hidden">
+  <div class="card login">
+    <h1>Storina · KS-STOR</h1>
+    <div class="muted" id="loginHint">Inserisci la password.</div>
+    <form id="loginForm">
+      <input type="password" id="loginPw" autocomplete="current-password" placeholder="Password" required>
+      <input type="password" id="loginPw2" class="hidden" autocomplete="new-password" placeholder="Ripeti password">
+      <div class="err" id="loginErr"></div>
+      <button class="btn primary" style="width:100%">Entra</button>
+    </form>
+  </div>
+</div>
+
+<div id="appView" class="hidden">
+<header>
+  <div class="bar">
+    <div class="brand">Storina <small>KS-STOR sniper</small></div>
+    <span class="badge" id="modeBadge">—</span>
+    <span class="badge" id="stateBadge">—</span>
+    <nav>
+      <button data-tab="dash" class="active">Dashboard</button>
+      <button data-tab="config">Configurazione</button>
+      <button data-tab="log">Log</button>
+    </nav>
+    <span class="spacer"></span>
+    <span class="badge" title="Connessione in tempo reale"><span class="dot" id="connDot"></span><span id="connText">offline</span></span>
+    <button class="btn" id="logoutBtn">Esci</button>
+  </div>
+</header>
+
+<main>
+  <!-- DASHBOARD -->
+  <section id="tab-dash">
+    <div id="banners"></div>
+
+    <div class="grid">
+      <div class="card"><h3>Stato</h3><div class="big" id="cState">—</div><div class="muted" id="cStateSub"></div></div>
+      <div class="card"><h3>Prossimo controllo</h3><div class="big" id="cNext">—</div><div class="muted" id="cLast"></div></div>
+      <div class="card"><h3>Controlli</h3><div class="big" id="cPolls">0</div><div class="muted" id="cErrors"></div></div>
+      <div class="card"><h3>Restock visti</h3><div class="big" id="cRestocks">0</div><div class="muted" id="cLastRestock"></div></div>
+      <div class="card"><h3>Account OVH</h3><div class="big" id="cAccount">—</div><div class="muted" id="cAccountSub"></div></div>
+      <div class="card"><h3>Carrello pronto</h3><div class="big" id="cCart">—</div><div class="muted" id="cCartSub"></div></div>
+    </div>
+
+    <div class="card section hidden" id="attemptCard">
+      <h3 id="attemptTitle">Tentativo in corso</h3>
+      <div id="attemptWhat" style="font-weight:600"></div>
+      <div class="steps" id="attemptSteps"></div>
+    </div>
+
+    <div class="section">
+      <div class="section-head">
+        <h2>Azioni</h2>
+      </div>
+      <div class="card actions">
+        <button class="btn" id="pollNowBtn">Controlla ora</button>
+        <button class="btn" id="checkAccBtn">Verifica account</button>
+        <span class="muted">Test carrello (senza ordinare) nel datacenter</span>
+        <select id="testDc"></select>
+        <button class="btn" id="testCartBtn">Avvia test</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head"><h2>Disponibilità</h2><span class="muted" id="availSub"></span></div>
+      <div class="tablewrap"><table>
+        <thead id="availHead"></thead><tbody id="availBody"><tr><td class="empty">In attesa del primo controllo…</td></tr></tbody>
+      </table></div>
+    </div>
+
+    <div class="section">
+      <div class="section-head"><h2>Tentativi</h2><span class="muted">ultimi 200, conservati in /data/attempts.jsonl</span></div>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Quando</th><th>Esito</th><th>Configurazione</th><th>DC</th><th>Dettagli</th></tr></thead>
+        <tbody id="attemptsBody"><tr><td colspan="5" class="empty">Nessun tentativo finora.</td></tr></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <!-- CONFIG -->
+  <section id="tab-config" class="hidden">
+    <div class="banner info"><div class="grow">I valori salvati qui hanno la precedenza sul file <b>.env</b> e vengono applicati subito.
+      Le chiavi segrete già salvate non vengono mai mostrate: lascia il campo vuoto per non cambiarle.</div></div>
+    <form id="configForm" autocomplete="off"></form>
+
+    <fieldset>
+      <legend>Consumer key OVH</legend>
+      <p class="muted" style="margin:8px 0">1) Salva Application Key e Application Secret. 2) Genera la consumer key e convalidala sul sito OVH
+        (validità <b>Unlimited</b>). 3) Torna qui e premi “Verifica e applica”.</p>
+      <div class="actions">
+        <button class="btn" type="button" id="ckBtn">Genera consumer key</button>
+        <button class="btn primary" type="button" id="ckApplyBtn">Ho convalidato: verifica e applica</button>
+      </div>
+      <div id="ckResult" style="margin-top:10px"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Password della web UI</legend>
+      <div class="actions" style="margin-top:8px">
+        <input type="password" id="pwOld" placeholder="Password attuale" autocomplete="current-password">
+        <input type="password" id="pwNew" placeholder="Nuova password (min 8)" autocomplete="new-password">
+        <button class="btn" type="button" id="pwBtn">Cambia password</button>
+      </div>
+    </fieldset>
+
+    <div class="savebar">
+      <span class="muted grow" id="saveHint" style="flex:1">Nessuna modifica</span>
+      <button class="btn" type="button" id="reloadCfgBtn">Annulla modifiche</button>
+      <button class="btn primary" type="button" id="saveBtn">Salva e applica</button>
+    </div>
+  </section>
+
+  <!-- LOG -->
+  <section id="tab-log" class="hidden">
+    <div class="section-head">
+      <select id="logLevel">
+        <option value="0">Tutti i livelli</option><option value="1">Warning ed errori</option><option value="2">Solo errori</option>
+      </select>
+      <input type="text" id="logSearch" placeholder="Filtra testo…">
+      <label class="actions"><input type="checkbox" id="logFollow" checked> Segui</label>
+      <span class="muted">ultimi 400 messaggi dal riavvio; storico completo in /data/logs/monitor.log</span>
+    </div>
+    <div class="logbox" id="logBox"></div>
+  </section>
+</main>
+</div>
+
+<div id="modal" class="modal hidden"><div class="card">
+  <h3 id="modalTitle" style="font-size:15px;text-transform:none;letter-spacing:0;color:var(--text)"></h3>
+  <div id="modalBody" style="margin:10px 0"></div>
+  <input type="text" id="modalInput" style="width:100%" autocomplete="off">
+  <div class="err" id="modalErr"></div>
+  <div class="actions" style="justify-content:flex-end;margin-top:6px">
+    <button class="btn" id="modalCancel">Annulla</button><button class="btn danger" id="modalOk">Conferma</button>
+  </div>
+</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const STEPS = ["avvio","carrello","server","opzioni","configurazione","anteprima","checkout"];
+const STATE_LABEL = {avvio:["Avvio","info"],monitoring:["Monitoraggio attivo","ok"],backoff:["In attesa (errori o limite API)","warn"],
+  locked:["Ordine fatto · bloccato","ok"],halted:["Fermo per errore","bad"],paused:["In pausa","warn"],
+  config_error:["Configurazione non valida","bad"],error:["Errore · riavvio","bad"]};
+const KIND = {ordered:["Ordinato","ok"],dry_run:["Dry-run OK","info"],stock_gone:["Stock esaurito","warn"],rejected:["Non conforme",""],
+  prep_error:["Errore tecnico","warn"],fatal:["Errore bloccante","bad"],uncertain:["Esito incerto","bad"]};
+const NOT_AV = new Set(["unavailable","comingSoon","unknown"]);
+
+let S = {}, attempts = [], logs = [], lastId = 0, es = null, cfgFields = [], cfgDirty = {}, cfgReset = new Set();
+
+function toast(msg){ const d=document.createElement("div"); d.textContent=msg; $("toast").appendChild(d); setTimeout(()=>d.remove(),4500); }
+function fmtTime(ts){ if(!ts) return "—"; const d=new Date(ts*1000); return d.toLocaleString("it-IT",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"}); }
+function ago(ts){ if(!ts) return "mai"; const s=Math.round(Date.now()/1000-ts); if(s<5) return "adesso"; if(s<60) return s+" s fa"; if(s<3600) return Math.floor(s/60)+" min fa"; if(s<86400) return Math.floor(s/3600)+" h fa"; return Math.floor(s/86400)+" g fa"; }
+function eur(v){ return v==null ? "—" : v.toLocaleString("it-IT",{style:"currency",currency:"EUR"}); }
+function prettyStorage(code){
+  if(!code) return "—";
+  return code.replace(/^(hybrid)?(soft|hard)raid-/,"").split("-").map(p=>{
+    const m=p.match(/^(\d+)x(\d+)(sa|sas|nvme|ssd)?/); if(!m) return p;
+    const gb=+m[2]; const size = gb>=1000 ? (gb/1000)+" TB" : gb+" GB";
+    return `${m[1]}× ${size} ${({sa:"SATA",sas:"SAS",nvme:"NVMe",ssd:"SSD"})[m[3]]||""}`.trim();
+  }).join(" + ");
+}
+
+async function api(path, body){
+  const opt = body===undefined ? {} : {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)};
+  const r = await fetch(path, {credentials:"same-origin", ...opt});
+  let data = {}; try { data = await r.json(); } catch(e) {}
+  if(r.status===401 && !path.startsWith("/api/auth")){ showLogin(); throw new Error("non autenticato"); }
+  if(!r.ok){ const e=new Error(data.error||("HTTP "+r.status)); e.data=data; e.status=r.status; throw e; }
+  return data;
+}
+
+/* ---------- login ---------- */
+let setupMode=false;
+async function boot(){
+  const a = await api("/api/auth");
+  if(a.logged_in) return startApp();
+  setupMode = a.setup_needed; showLogin();
+}
+function showLogin(){
+  if(es){ es.close(); es=null; }
+  $("appView").classList.add("hidden"); $("loginView").classList.remove("hidden");
+  $("loginHint").textContent = setupMode ? "Primo accesso: scegli una password (almeno 8 caratteri)." : "Inserisci la password.";
+  $("loginPw2").classList.toggle("hidden", !setupMode);
+  $("loginPw").focus();
+}
+$("loginForm").addEventListener("submit", async (ev)=>{
+  ev.preventDefault(); $("loginErr").textContent="";
+  const pw=$("loginPw").value;
+  try{
+    if(setupMode){ if(pw!==$("loginPw2").value) throw new Error("Le password non coincidono"); await api("/api/auth/setup",{password:pw}); }
+    else await api("/api/auth/login",{password:pw});
+    $("loginPw").value=""; $("loginPw2").value=""; startApp();
+  }catch(e){ $("loginErr").textContent=e.message; }
+});
+$("logoutBtn").onclick = async ()=>{ await api("/api/auth/logout",{}); setupMode=false; showLogin(); };
+
+/* ---------- app ---------- */
+async function startApp(){
+  $("loginView").classList.add("hidden"); $("appView").classList.remove("hidden");
+  const st = await api("/api/state");
+  S = st.status||{}; attempts = st.attempts||[]; logs = (st.logs||[]).map(e=>e.data); lastId = st.last_id||0;
+  S.lock = st.status.lock; S.halt = st.status.halt;
+  renderAll(); renderLogs(true); connect(); loadConfig();
+}
+function connect(){
+  if(es) es.close();
+  es = new EventSource("/api/events?after="+lastId);
+  es.onopen = ()=>{ $("connDot").className="dot on"; $("connText").textContent="in diretta"; };
+  es.onerror = async ()=>{
+    $("connDot").className="dot off"; $("connText").textContent="riconnessione…";
+    try{ const a=await api("/api/auth"); if(!a.logged_in){ setupMode=a.setup_needed; showLogin(); } }catch(e){}
+  };
+  es.onmessage = (m)=>{
+    const e = JSON.parse(m.data); lastId = e.id;
+    if(e.type==="status"){ Object.assign(S, e.data); renderAll(); }
+    else if(e.type==="log"){ logs.push(e.data); if(logs.length>2000) logs.splice(0,logs.length-2000); appendLog(e.data); }
+    else if(e.type==="attempt"){ attempts.push(e.data); renderAttempts(); toastAttempt(e.data); }
+  };
+}
+function toastAttempt(a){ const k=KIND[a.kind]||[a.kind]; toast(`${a.test?"Test carrello":"Tentativo"}: ${k[0]} — ${a.message||""}`.slice(0,220)); }
+
+function badge(el, text, cls){ el.textContent=text; el.className="badge "+(cls||""); }
+function renderAll(){ renderHeader(); renderCards(); renderBanners(); renderAttempt(); renderAvail(); renderAttempts(); }
+function renderHeader(){
+  const mode = S.paused ? "IN PAUSA" : (S.mode||"—");
+  badge($("modeBadge"), mode, S.mode==="LIVE" && !S.paused ? "bad" : (S.paused ? "warn" : "info"));
+  const st = STATE_LABEL[S.state]||[S.state||"—",""]; badge($("stateBadge"), st[0], st[1]);
+  const sel=$("testDc"), dcs=S.datacenters||[];
+  if(sel.dataset.v!==dcs.join(",")){ sel.dataset.v=dcs.join(","); sel.innerHTML=dcs.map(d=>`<option>${esc(d)}</option>`).join(""); }
+}
+function renderCards(){
+  const st = STATE_LABEL[S.state]||[S.state||"—"];
+  $("cState").textContent = st[0];
+  $("cStateSub").textContent = S.mode==="LIVE" ? "Ordine REALE al primo restock valido" : "Dry-run: nessun ordine reale";
+  $("cPolls").textContent = S.polls||0;
+  $("cErrors").textContent = (S.errors||0)+" errori"+(S.last_error?` (ultimo: ${S.last_error})`:"");
+  $("cRestocks").textContent = S.restocks||0;
+  $("cLastRestock").textContent = S.last_restock ? "ultimo "+ago(S.last_restock) : "nessuno dall'avvio";
+  const acc=S.account;
+  $("cAccount").textContent = !acc ? "—" : (acc.ok ? "Pronto" : "Non pronto");
+  $("cAccount").style.color = !acc ? "" : (acc.ok ? "var(--ok)" : "var(--bad)");
+  $("cAccountSub").textContent = acc ? `${acc.message} · ${ago(acc.checked_at)}` : "";
+  $("cCart").textContent = S.cart ? "Sì" : "No";
+  $("cCartSub").textContent = S.cart ? `${S.cart.id} · scade ${new Date(S.cart.expire).toLocaleTimeString("it-IT",{hour:"2-digit",minute:"2-digit"})}` : "si prepara con credenziali valide";
+  tick();
+}
+function tick(){
+  if(S.state==="monitoring"||S.state==="backoff"){
+    const s=Math.max(0,Math.round((S.next_poll||0)-Date.now()/1000));
+    $("cNext").textContent = S.attempt ? "tentativo…" : (S.next_poll ? (s>0? s+" s":"ora") : "—");
+  } else $("cNext").textContent = "—";
+  $("cLast").textContent = "ultimo: "+ago(S.last_poll);
+  $("cAccountSub").textContent = S.account ? `${S.account.message} · ${ago(S.account.checked_at)}` : "";
+  $("cLastRestock").textContent = S.last_restock ? "ultimo "+ago(S.last_restock) : "nessuno dall'avvio";
+}
+setInterval(()=>{ if(!$("appView").classList.contains("hidden")) tick(); }, 1000);
+
+function renderBanners(){
+  const b=[];
+  if(S.lock){
+    const ok = S.lock.status==="ordered";
+    b.push(`<div class="banner ${ok?"ok":"bad"}"><div class="grow"><b>${ok?"✅ Ordine effettuato":"⚠️ Esito del checkout incerto"}</b> — non verranno fatti altri ordini finché il lock esiste.
+      ${ok?"":"Controlla gli ordini su <a href='https://www.ovh.com/manager/#/dedicated/billing/orders' target='_blank' rel='noopener'>OVH Manager</a>."}
+      <pre>${esc(JSON.stringify(S.lock,null,2))}</pre></div><button class="btn" data-act="clearLock">Rimuovi lock</button></div>`);
+  }
+  if(S.halt) b.push(`<div class="banner bad"><div class="grow"><b>⛔ Fermo per errore bloccante</b><pre>${esc(S.halt.reason||JSON.stringify(S.halt))}</pre>
+      <div style="margin-top:6px">Correggi il problema (configurazione, pagamento, permessi) e riprendi.</div></div><button class="btn" data-act="clearHalt">Riprendi</button></div>`);
+  if(S.state==="config_error") b.push(`<div class="banner bad"><div class="grow"><b>Configurazione non valida:</b> ${esc(S.error)}</div></div>`);
+  if(S.mode==="LIVE" && !S.lock && !S.paused) b.push(`<div class="banner warn"><div class="grow"><b>Modalità LIVE attiva:</b> al primo restock che rispetta i requisiti verrà fatto un ordine reale con pagamento automatico.</div></div>`);
+  if(S.account && !S.account.ok && !S.lock) b.push(`<div class="banner warn"><div class="grow"><b>Account non pronto:</b> ${esc(S.account.message)}. Completa la scheda Configurazione.</div></div>`);
+  $("banners").innerHTML=b.join("");
+}
+function renderAttempt(){
+  const a=S.attempt, card=$("attemptCard");
+  if(!a){ card.classList.add("hidden"); return; }
+  card.classList.remove("hidden");
+  $("attemptTitle").textContent = a.test ? "Test carrello in corso" : (a.dry_run ? "Tentativo in corso (dry-run)" : "TENTATIVO D'ORDINE IN CORSO");
+  $("attemptWhat").textContent = `${a.fqn==="test"?"":prettyStorage((a.fqn||"").split(".").pop())+" · "}datacenter ${a.dc} · iniziato ${ago(a.started)}`;
+  const idx = STEPS.indexOf(a.step);
+  const steps = (a.dry_run||a.test) ? STEPS.slice(0,-1) : STEPS;
+  $("attemptSteps").innerHTML = steps.map((s,i)=>`<span class="step ${i<idx?"done":(i===idx?"now":"")}">${s}</span>`).join("");
+}
+function avCell(v){
+  if(!v) return `<span class="av no">—</span>`;
+  const cls = NOT_AV.has(v) ? (v==="comingSoon"?"soon":"no") : "yes";
+  const label = {unavailable:"esaurito",comingSoon:"in arrivo",unknown:"sconosciuto"}[v] || v;
+  return `<span class="av ${cls}">${esc(label)}</span>`;
+}
+function renderAvail(){
+  const dcs=S.datacenters||[], rows=S.offers;
+  $("availHead").innerHTML = `<tr><th>Configurazione</th><th class="num">Storage</th><th class="num">Canone</th><th class="num">Primo pag.</th><th>Requisiti</th>${dcs.map(d=>`<th>${esc(d.toUpperCase())}</th>`).join("")}</tr>`;
+  if(!rows){ return; }
+  $("availSub").textContent = `piani ${(S.plans||[]).join(", ")} · aggiornato ${fmtTime(S.last_poll)}`;
+  if(!rows.length){ $("availBody").innerHTML=`<tr><td colspan="${5+dcs.length}" class="empty">Nessuna combinazione restituita da OVH per questi piani.</td></tr>`; return; }
+  $("availBody").innerHTML = rows.map(r=>`<tr>
+    <td><div style="font-weight:600">${esc(prettyStorage(r.storage))}</div><div class="mono muted">${esc(r.planCode)} · ${esc(r.memory)}</div></td>
+    <td class="num">${r.storage_tb!=null? r.storage_tb.toLocaleString("it-IT")+" TB":"—"}</td>
+    <td class="num">${eur(r.monthly)}</td><td class="num">${eur(r.first)}</td>
+    <td>${r.ok===undefined?'<span class="badge">catalogo?</span>':(r.ok?'<span class="badge ok">OK</span>':'<span class="badge">scartata</span><div class="reasons">'+esc((r.reasons||[]).join("; "))+'</div>')}</td>
+    ${dcs.map(d=>`<td>${avCell(r.dcs[d])}</td>`).join("")}</tr>`).join("");
+}
+function renderAttempts(){
+  if(!attempts.length) return;
+  $("attemptsBody").innerHTML = attempts.slice().reverse().map(a=>{
+    const k=KIND[a.kind]||[a.kind,""]; const d=a.details||{};
+    const extra = [d.first_payment_ttc!=null?`primo pagamento ${eur(d.first_payment_ttc)}`:"", d.orderId?`ordine #${d.orderId}`:"", d.prep_seconds!=null?`${d.prep_seconds}s`:""].filter(Boolean).join(" · ");
+    return `<tr><td class="num">${fmtTime(a.ts)}</td>
+      <td><span class="badge ${k[1]}">${esc(k[0])}</span>${a.test?' <span class="badge">test</span>':(a.dry_run?' <span class="badge">dry-run</span>':'')}</td>
+      <td>${esc(prettyStorage(String(a.fqn||"").split(".").pop()))}</td><td>${esc((a.dc||"").toUpperCase())}</td>
+      <td>${esc(a.message)}${extra?`<div class="reasons">${esc(extra)}</div>`:""}</td></tr>`;
+  }).join("");
+}
+
+/* ---------- azioni ---------- */
+function confirmModal(title, html, word){
+  return new Promise(res=>{
+    $("modalTitle").textContent=title; $("modalBody").innerHTML=html; $("modalErr").textContent="";
+    $("modalInput").value=""; $("modalInput").classList.toggle("hidden",!word); $("modal").classList.remove("hidden");
+    if(word) $("modalInput").focus();
+    const close=(v)=>{ $("modal").classList.add("hidden"); $("modalOk").onclick=$("modalCancel").onclick=null; res(v); };
+    $("modalCancel").onclick=()=>close(null);
+    $("modalOk").onclick=()=>{ const v=$("modalInput").value.trim(); if(word && v.toUpperCase()!==word){ $("modalErr").textContent=`Scrivi ${word} per confermare`; return; } close(v||true); };
+  });
+}
+document.addEventListener("click", async (ev)=>{
+  const act = ev.target.closest("[data-act]")?.dataset.act; if(!act) return;
+  try{
+    if(act==="clearLock"){
+      const v=await confirmModal("Rimuovere il lock?","Dopo la rimozione il programma potrà fare <b>un nuovo ordine</b>. Scrivi <b>SBLOCCA</b> per confermare.","SBLOCCA");
+      if(v){ await api("/api/actions/clear-lock",{confirm:"SBLOCCA"}); S.lock=null; renderAll(); toast("Lock rimosso"); }
+    } else if(act==="clearHalt"){ await api("/api/actions/clear-halt",{}); S.halt=null; renderAll(); toast("Ripresa del monitoraggio"); }
+  }catch(e){ toast(e.message); }
+});
+$("pollNowBtn").onclick = async ()=>{ try{ await api("/api/actions/poll-now",{}); toast("Controllo richiesto"); }catch(e){ toast(e.message); } };
+$("checkAccBtn").onclick = async ()=>{ const b=$("checkAccBtn"); b.disabled=true; try{ const r=await api("/api/actions/check-account",{}); toast(r.message); }catch(e){ toast(e.message); } b.disabled=false; };
+$("testCartBtn").onclick = async ()=>{ try{ await api("/api/actions/test-cart",{dc:$("testDc").value}); toast("Test carrello avviato"); }catch(e){ toast(e.message); } };
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("active",x===b));
+  ["dash","config","log"].forEach(t=>$("tab-"+t).classList.toggle("hidden",t!==b.dataset.tab));
+  if(b.dataset.tab==="log") renderLogs(true);
+});
+
+/* ---------- configurazione ---------- */
+async function loadConfig(){
+  const c = await api("/api/config"); cfgFields=c.fields; cfgDirty={}; cfgReset=new Set(); renderConfig(); updateSaveHint();
+}
+function renderConfig(){
+  const groups={}; cfgFields.forEach(f=>(groups[f.group]=groups[f.group]||[]).push(f));
+  const SRC={ui:"web UI",env:".env",default:"predefinito"};
+  $("configForm").innerHTML = Object.entries(groups).map(([g,fs])=>`<fieldset><legend>${esc(g)}</legend>${fs.map(f=>{
+    const id="f_"+f.env; let input;
+    if(f.kind==="bool") input=`<label class="switch"><input type="checkbox" id="${id}" ${/^(1|true|yes|on|si|sì)$/i.test(f.value)?"checked":""}><span></span></label>`;
+    else if(f.kind==="choice") input=`<select id="${id}">${f.choices.map(c=>`<option ${c===f.value?"selected":""}>${esc(c)}</option>`).join("")}</select>`;
+    else if(f.kind==="secret") input=`<input type="password" id="${id}" placeholder="${f.has_value?"•••••••• impostata (lascia vuoto per non cambiare)":"non impostata"}" autocomplete="new-password">`;
+    else input=`<input type="${f.kind==="int"||f.kind==="float"?"number":"text"}" ${f.kind==="float"?'step="any"':""} id="${id}" value="${esc(f.value)}">`;
+    const reset = f.source==="ui" ? `<button type="button" class="linkbtn" data-reset="${f.env}">ripristina</button>` : "";
+    return `<div class="field"><label for="${id}">${esc(f.label)}</label><div><div class="row">${input}
+      <span class="src ${f.source}" title="Da dove arriva il valore attuale">${SRC[f.source]}</span>${reset}</div>
+      <div class="help">${esc(f.help)} <span class="mono">${esc(f.env)}</span></div></div></div>`;
+  }).join("")}</fieldset>`).join("");
+  cfgFields.forEach(f=>{
+    const el=$("f_"+f.env);
+    el.addEventListener(f.kind==="bool"||f.kind==="choice"?"change":"input", ()=>{
+      cfgDirty[f.env] = f.kind==="bool" ? el.checked : el.value; updateSaveHint();
+    });
+  });
+  document.querySelectorAll("[data-reset]").forEach(b=>b.onclick=()=>{ cfgReset.add(b.dataset.reset); b.textContent="sarà ripristinato da .env"; b.disabled=true; updateSaveHint(); });
+}
+function updateSaveHint(){
+  const n = Object.keys(cfgDirty).length + cfgReset.size;
+  $("saveHint").textContent = n ? `${n} modific${n===1?"a":"he"} da salvare` : "Nessuna modifica";
+}
+$("reloadCfgBtn").onclick = ()=>loadConfig();
+$("saveBtn").onclick = async ()=>{
+  const body={values:cfgDirty, reset:[...cfgReset]};
+  try{
+    let r;
+    try{ r = await api("/api/config", body); }
+    catch(e){
+      if(!e.data?.need_live_confirm) throw e;
+      const v = await confirmModal("Attivare la modalità LIVE?",
+        `Con il dry-run disattivato, al primo restock che rispetta i requisiti verrà fatto un <b>ordine reale</b> pagato automaticamente con il metodo predefinito.<br><br>Scrivi <b>ORDINA</b> per confermare.`, "ORDINA");
+      if(!v) return;
+      r = await api("/api/config", {...body, confirm_live:"ORDINA"});
+    }
+    toast(r.changed.length ? "Salvato e applicato: "+r.changed.join(", ") : "Nessuna modifica");
+    loadConfig();
+  }catch(e){ toast("Errore: "+e.message); }
+};
+$("ckBtn").onclick = async ()=>{
+  try{
+    const r = await api("/api/actions/consumer-key",{});
+    $("ckResult").innerHTML = `<div class="banner info"><div class="grow">Consumer key generata e salvata. Ora <b>apri questo link</b>, accedi a OVH, scegli validità <b>Unlimited</b> e conferma:<br>
+      <a href="${esc(r.validationUrl)}" target="_blank" rel="noopener">${esc(r.validationUrl)}</a><br>Poi premi “Ho convalidato: verifica e applica”.</div></div>`;
+    loadConfig();
+  }catch(e){ $("ckResult").innerHTML=`<div class="banner bad"><div class="grow">${esc(e.message)}</div></div>`; }
+};
+$("ckApplyBtn").onclick = async ()=>{
+  try{
+    const r = await api("/api/actions/check-account",{apply:true});
+    $("ckResult").innerHTML = `<div class="banner ${r.ok?"ok":"bad"}"><div class="grow">${esc(r.message)}${r.ok?" — configurazione applicata.":""}</div></div>`;
+  }catch(e){ toast(e.message); }
+};
+$("pwBtn").onclick = async ()=>{
+  try{ await api("/api/actions/password",{old:$("pwOld").value,new:$("pwNew").value}); $("pwOld").value=$("pwNew").value=""; toast("Password cambiata"); }
+  catch(e){ toast(e.message); }
+};
+
+/* ---------- log ---------- */
+const LV={DEBUG:0,INFO:0,WARNING:1,ERROR:2,CRITICAL:2};
+function logVisible(l){ return (LV[l.level]??0) >= +$("logLevel").value && (!$("logSearch").value || l.msg.toLowerCase().includes($("logSearch").value.toLowerCase())); }
+function logHtml(l){ const t=new Date(l.ts*1000).toLocaleTimeString("it-IT"); return `<div class="logline ${esc(l.level)}"><span class="t">${t}</span>${esc(l.msg)}</div>`; }
+function renderLogs(){ const box=$("logBox"); box.innerHTML = logs.filter(logVisible).slice(-1500).map(logHtml).join("") || '<div class="empty">Nessun messaggio.</div>'; if($("logFollow").checked) box.scrollTop=box.scrollHeight; }
+function appendLog(l){
+  if($("tab-log").classList.contains("hidden") || !logVisible(l)) return;
+  const box=$("logBox"); box.querySelector(".empty")?.remove(); box.insertAdjacentHTML("beforeend", logHtml(l));
+  while(box.childElementCount>1500) box.firstElementChild.remove();
+  if($("logFollow").checked) box.scrollTop=box.scrollHeight;
+}
+$("logLevel").onchange = renderLogs; $("logSearch").oninput = renderLogs;
+
+boot().catch(e=>{ document.body.innerHTML = '<div class="center"><div class="card">Errore di caricamento: '+esc(e.message)+'</div></div>'; });
+</script>
+</body>
+</html>

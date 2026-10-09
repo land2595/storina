@@ -11,15 +11,21 @@ log = logging.getLogger(__name__)
 
 
 class Notifier:
-    def __init__(self, token: str, chat_id: str, prefix: str = ""):
+    def __init__(self, token: str = "", chat_id: str = "", prefix: str = ""):
+        self._q: queue.Queue[str] = queue.Queue()
+        self._session = requests.Session()
+        self._thread: threading.Thread | None = None
+        self.configure(token, chat_id, prefix)
+
+    def configure(self, token: str, chat_id: str, prefix: str = "") -> None:
+        """Aggiorna destinatario e prefisso (es. dopo un salvataggio dalla web UI)."""
         self.enabled = bool(token and chat_id)
         self._url = f"https://api.telegram.org/bot{token}/sendMessage" if self.enabled else ""
         self._chat_id = chat_id
         self._prefix = prefix
-        self._q: queue.Queue[str] = queue.Queue()
-        self._session = requests.Session()
-        if self.enabled:
-            threading.Thread(target=self._worker, name="telegram", daemon=True).start()
+        if self.enabled and self._thread is None:
+            self._thread = threading.Thread(target=self._worker, name="telegram", daemon=True)
+            self._thread.start()
 
     def send(self, text: str) -> None:
         if self.enabled:
