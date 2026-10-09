@@ -32,7 +32,7 @@ All'avvio il programma lo verifica; in modalità live, se manca, si ferma.
 ## 3. Test in dry-run (default)
 
 ```bash
-docker compose build
+docker compose pull
 docker compose run --rm ovh-ks-sniper python -m app.main --check
 ```
 Mostra ogni combinazione con storage, prezzi IVA inclusa, esito dei requisiti e disponibilità, e verifica
@@ -63,20 +63,26 @@ errori ripetuti) scrive `/data/halt.json`: correggi il problema ed elimina il fi
 
 ## 5. Unraid
 
-1. Copia la cartella del progetto, ad es. in `/mnt/user/appdata/ovh-ks-sniper-src/`, e crea lì il `.env`.
-2. Crea la cartella dati con i permessi giusti **prima** del primo avvio (se la crea Docker è di root
-   e il container, che non gira come root, non può scriverci):
+L'immagine è pubblicata automaticamente su GitHub Container Registry a ogni push su `main`
+(`ghcr.io/land2595/storina:latest`, amd64 e arm64): non serve clonare il repository né compilare.
+
+1. Crea la cartella con i permessi giusti **prima** del primo avvio (se la crea Docker è di root e il
+   container, che non gira come root, non può scriverci):
    ```bash
    mkdir -p /mnt/user/appdata/ovh-ks-sniper && chown 99:100 /mnt/user/appdata/ovh-ks-sniper
    ```
-3. Da terminale Unraid (o con il plugin *Docker Compose Manager*):
+2. Metti `docker-compose.yml` e `.env` (copiato da `.env.example`) in una cartella, ad es.
+   `/mnt/user/appdata/ovh-ks-sniper-compose/`, oppure crea uno stack con il plugin *Docker Compose Manager*.
+3. Avvia:
    ```bash
-   cd /mnt/user/appdata/ovh-ks-sniper-src && docker compose up -d --build
+   cd /mnt/user/appdata/ovh-ks-sniper-compose && docker compose pull && docker compose up -d
    ```
-4. Lock, stato e log (`logs/monitor.log`, a rotazione) finiscono in `/mnt/user/appdata/ovh-ks-sniper`
-   (modifica il volume in `docker-compose.yml` se preferisci un altro percorso). Il container gira come
-   `99:100` (nobody:users), già proprietario delle cartelle appdata di Unraid.
-5. Lo stato *healthy/unhealthy* nella scheda Docker deriva dal file `heartbeat`, aggiornato ogni 15 s.
+4. Aggiornamento dopo una nuova versione: `docker compose pull && docker compose up -d`.
+5. Se il pacchetto su GitHub è privato, una volta sola: `docker login ghcr.io -u land2595` con un
+   *Personal access token (classic)* con permesso `read:packages` come password.
+6. Lock, stato e log (`logs/monitor.log`, a rotazione) finiscono in `/mnt/user/appdata/ovh-ks-sniper`.
+   Il container gira come `99:100` (nobody:users). Lo stato *healthy/unhealthy* nella scheda Docker
+   deriva dal file `heartbeat`, aggiornato ogni 15 s.
 
 ## Note
 

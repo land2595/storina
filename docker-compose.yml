@@ -1,7 +1,8 @@
 services:
   ovh-ks-sniper:
-    build: .
-    image: ovh-ks-sniper:latest
+    image: ghcr.io/land2595/storina:latest
+    # Per compilare in locale invece di scaricare l'immagine: commenta "image" e usa "build: ."
+    # build: .
     container_name: ovh-ks-sniper
     restart: unless-stopped
     env_file: .env
