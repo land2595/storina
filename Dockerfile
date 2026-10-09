@@ -1,4 +1,5 @@
-FROM python:3.12-slim-bookworm
+# Immagine ufficiale Python dal mirror pubblico AWS: evita i limiti di download anonimi di Docker Hub
+FROM public.ecr.aws/docker/library/python:3.12-slim-bookworm
 
 # UID/GID 99:100 = nobody:users, i default di Unraid per /mnt/user/appdata
 ARG PUID=99
