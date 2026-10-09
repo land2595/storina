@@ -61,6 +61,16 @@ class State:
         except (OSError, TypeError, ValueError) as e:
             log.critical("IMPOSSIBILE scrivere il lock %s: %s. Nessun altro ordine in questa sessione.", self.lock_path, e)
 
+    def update_lock(self, **fields) -> None:
+        """Aggiunge informazioni (es. stato del pagamento) a un lock esistente."""
+        data = _read_json(self.lock_path)
+        if data is None or "error" in data and len(data) == 1:
+            return
+        try:
+            atomic_write_json(self.lock_path, {**data, **fields})
+        except (OSError, TypeError, ValueError) as e:
+            log.warning("Aggiornamento lock fallito: %s", e)
+
     # --- blocco dopo errore non recuperabile ---------------------------------------
     def halt(self) -> dict | None:
         return _read_json(self.halt_path)

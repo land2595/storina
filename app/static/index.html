@@ -104,6 +104,13 @@ legend{font-weight:700;padding:0 6px}
 .modal .card{max-width:460px;width:100%}
 .empty{padding:22px;text-align:center;color:var(--muted)}
 .reasons{font-size:12px;color:var(--muted);margin-top:2px}
+.checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:2px 18px}
+.check{display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--line);align-items:flex-start}
+.check .ic{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;flex:none;margin-top:1px}
+.ic.ok{background:var(--ok-bg);color:var(--ok)}.ic.warn{background:var(--warn-bg);color:var(--warn)}
+.ic.fail{background:var(--bad-bg);color:var(--bad)}.ic.skip{background:var(--neutral-bg);color:var(--muted)}
+.check b{display:block;font-size:13px}.check span{font-size:12px;color:var(--muted)}
+.paybox{margin-top:8px;padding:10px 12px;border-radius:8px;background:var(--panel);color:var(--text)}
 .toast{position:fixed;right:16px;bottom:16px;z-index:30;display:flex;flex-direction:column;gap:8px}
 .toast div{background:var(--text);color:var(--bg);padding:9px 14px;border-radius:8px;max-width:380px;box-shadow:var(--shadow)}
 @media (max-width:720px){.field{grid-template-columns:1fr}.field label{padding-top:0}.brand small{display:none}}
@@ -167,11 +174,16 @@ legend{font-weight:700;padding:0 6px}
       </div>
       <div class="card actions">
         <button class="btn" id="pollNowBtn">Controlla ora</button>
-        <button class="btn" id="checkAccBtn">Verifica account</button>
+        <button class="btn" id="checkAccBtn">Esegui controlli</button>
         <span class="muted">Test carrello (senza ordinare) nel datacenter</span>
         <select id="testDc"></select>
         <button class="btn" id="testCartBtn">Avvia test</button>
       </div>
+    </div>
+
+    <div class="section">
+      <div class="section-head"><h2>Controlli</h2><span class="muted" id="checksSub"></span></div>
+      <div class="card"><div class="checks" id="checksList"><div class="empty">Controlli non ancora eseguiti.</div></div></div>
     </div>
 
     <div class="section">
@@ -205,6 +217,12 @@ legend{font-weight:700;padding:0 6px}
         <button class="btn primary" type="button" id="ckApplyBtn">Ho convalidato: verifica e applica</button>
       </div>
       <div id="ckResult" style="margin-top:10px"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Prova notifiche Telegram</legend>
+      <p class="muted" style="margin:8px 0">Dopo aver salvato bot token e chat ID (e premuto <b>Avvia</b> sul bot in Telegram), invia un messaggio di prova.</p>
+      <button class="btn" type="button" id="tgBtn">Invia messaggio di prova</button>
     </fieldset>
 
     <fieldset>
@@ -336,7 +354,25 @@ function connect(){
 function toastAttempt(a){ const k=KIND[a.kind]||[a.kind]; toast(`${a.test?"Test carrello":"Tentativo"}: ${k[0]} — ${a.message||""}`.slice(0,220)); }
 
 function badge(el, text, cls){ el.textContent=text; el.className="badge "+(cls||""); }
-function renderAll(){ renderHeader(); renderCards(); renderBanners(); renderAttempt(); renderAvail(); renderAttempts(); }
+function renderAll(){ renderHeader(); renderCards(); renderBanners(); renderAttempt(); renderChecks(); renderAvail(); renderAttempts(); }
+function renderChecks(){
+  const r=S.checks; if(!r) return;
+  const IC={ok:"✓",warn:"!",fail:"✕",skip:"–"};
+  $("checksList").innerHTML = r.checks.map(c=>`<div class="check"><div class="ic ${c.status}">${IC[c.status]||"?"}</div>
+    <div><b>${esc(c.label)}</b><span>${esc(c.detail)}</span></div></div>`).join("");
+  const nf=r.checks.filter(c=>c.status==="fail").length, nw=r.checks.filter(c=>c.status==="warn").length;
+  $("checksSub").textContent = `${nf?nf+" da risolvere · ":""}${nw?nw+" avvisi · ":""}eseguiti ${ago(r.checked_at)} · ripetuti ogni 6 ore`;
+}
+const PAY_CLS={notPaid:"bad",checking:"info",documentsRequested:"warn",delivering:"info",delivered:"ok",cancelling:"bad",cancelled:"bad"};
+function payHtml(){
+  const t = S.order_track || (S.lock && S.lock.payment);
+  const oid = S.lock && (S.lock.orderId || S.lock.probable_orderId);
+  if(!t){ return oid ? `<div class="paybox">Ordine #${esc(oid)} · stato del pagamento in lettura…</div>` : ""; }
+  const links = [t.url?`<a href="${esc(t.url)}" target="_blank" rel="noopener">${t.status==="notPaid"?"<b>Paga ora</b>":"Apri l'ordine"}</a>`:"",
+                 t.pdfUrl?`<a href="${esc(t.pdfUrl)}" target="_blank" rel="noopener">Documento PDF</a>`:""].filter(Boolean).join(" · ");
+  return `<div class="paybox">Ordine #${esc(t.orderId||oid)} · stato su OVH: <span class="badge ${PAY_CLS[t.status]||""}">${esc(t.label||t.status)}</span>
+    ${t.priceWithTax!=null?" · "+eur(t.priceWithTax):""} ${links?" · "+links:""}<div class="muted" style="font-size:12px;margin-top:4px">aggiornato ${ago(t.checked_at)}</div></div>`;
+}
 function renderHeader(){
   const mode = S.paused ? "IN PAUSA" : (S.mode||"—");
   badge($("modeBadge"), mode, S.mode==="LIVE" && !S.paused ? "bad" : (S.paused ? "warn" : "info"));
@@ -374,10 +410,15 @@ setInterval(()=>{ if(!$("appView").classList.contains("hidden")) tick(); }, 1000
 function renderBanners(){
   const b=[];
   if(S.lock){
-    const ok = S.lock.status==="ordered";
-    b.push(`<div class="banner ${ok?"ok":"bad"}"><div class="grow"><b>${ok?"✅ Ordine effettuato":"⚠️ Esito del checkout incerto"}</b> — non verranno fatti altri ordini finché il lock esiste.
+    const pay = (S.order_track || S.lock.payment || {}).status;
+    const unpaid = pay==="notPaid" || pay==="cancelled" || pay==="cancelling";
+    const ok = S.lock.status==="ordered" && !unpaid;
+    const title = S.lock.status!=="ordered" ? "⚠️ Esito del checkout incerto"
+      : (pay==="notPaid" ? "⚠️ Ordine creato ma NON pagato" : (unpaid ? "❌ Ordine annullato" : "✅ Ordine effettuato"));
+    b.push(`<div class="banner ${ok?"ok":"bad"}"><div class="grow"><b>${title}</b> — non verranno fatti altri ordini finché il lock esiste.
       ${ok?"":"Controlla gli ordini su <a href='https://www.ovh.com/manager/#/dedicated/billing/orders' target='_blank' rel='noopener'>OVH Manager</a>."}
-      <pre>${esc(JSON.stringify(S.lock,null,2))}</pre></div><button class="btn" data-act="clearLock">Rimuovi lock</button></div>`);
+      ${payHtml()}
+      <details style="margin-top:6px"><summary>Dettagli</summary><pre>${esc(JSON.stringify(S.lock,null,2))}</pre></details></div><button class="btn" data-act="clearLock">Rimuovi lock</button></div>`);
   }
   if(S.halt) b.push(`<div class="banner bad"><div class="grow"><b>⛔ Fermo per errore bloccante</b><pre>${esc(S.halt.reason||JSON.stringify(S.halt))}</pre>
       <div style="margin-top:6px">Correggi il problema (configurazione, pagamento, permessi) e riprendi.</div></div><button class="btn" data-act="clearHalt">Riprendi</button></div>`);
@@ -448,7 +489,11 @@ document.addEventListener("click", async (ev)=>{
   }catch(e){ toast(e.message); }
 });
 $("pollNowBtn").onclick = async ()=>{ try{ await api("/api/actions/poll-now",{}); toast("Controllo richiesto"); }catch(e){ toast(e.message); } };
-$("checkAccBtn").onclick = async ()=>{ const b=$("checkAccBtn"); b.disabled=true; try{ const r=await api("/api/actions/check-account",{}); toast(r.message); }catch(e){ toast(e.message); } b.disabled=false; };
+$("checkAccBtn").onclick = async ()=>{ const b=$("checkAccBtn"); b.disabled=true; b.textContent="Controllo…";
+  try{ const r=await api("/api/actions/check-account",{}); const nf=r.checks.checks.filter(c=>c.status==="fail").length;
+    toast(nf ? nf+" controlli da risolvere" : "Tutti i controlli critici superati"); }catch(e){ toast(e.message); }
+  b.disabled=false; b.textContent="Esegui controlli"; };
+$("tgBtn").onclick = async ()=>{ try{ await api("/api/actions/telegram-test",{}); toast("Messaggio di prova inviato: controlla Telegram"); }catch(e){ toast(e.message); } };
 $("testCartBtn").onclick = async ()=>{ try{ await api("/api/actions/test-cart",{dc:$("testDc").value}); toast("Test carrello avviato"); }catch(e){ toast(e.message); } };
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav button").forEach(x=>x.classList.toggle("active",x===b));
@@ -494,8 +539,11 @@ $("saveBtn").onclick = async ()=>{
     try{ r = await api("/api/config", body); }
     catch(e){
       if(!e.data?.need_live_confirm) throw e;
+      const bad = (S.checks?.checks||[]).filter(c=>c.status!=="ok" && c.status!=="skip");
+      const warnHtml = bad.length ? `<div class="banner warn" style="margin:10px 0"><div class="grow"><b>Controlli non superati:</b><br>${bad.map(c=>"• "+esc(c.label)+": "+esc(c.detail)).join("<br>")}
+        <br>In modalità LIVE un problema critico (chiavi, permessi, profilo, pagamento) ferma il programma.</div></div>` : "";
       const v = await confirmModal("Attivare la modalità LIVE?",
-        `Con il dry-run disattivato, al primo restock che rispetta i requisiti verrà fatto un <b>ordine reale</b> pagato automaticamente con il metodo predefinito.<br><br>Scrivi <b>ORDINA</b> per confermare.`, "ORDINA");
+        `Con il dry-run disattivato, al primo restock che rispetta i requisiti verrà fatto un <b>ordine reale</b> pagato automaticamente con il metodo predefinito.${warnHtml}<br>Scrivi <b>ORDINA</b> per confermare.`, "ORDINA");
       if(!v) return;
       r = await api("/api/config", {...body, confirm_live:"ORDINA"});
     }
@@ -514,7 +562,7 @@ $("ckBtn").onclick = async ()=>{
 $("ckApplyBtn").onclick = async ()=>{
   try{
     const r = await api("/api/actions/check-account",{apply:true});
-    $("ckResult").innerHTML = `<div class="banner ${r.ok?"ok":"bad"}"><div class="grow">${esc(r.message)}${r.ok?" — configurazione applicata.":""}</div></div>`;
+    $("ckResult").innerHTML = `<div class="banner ${r.ok?"ok":"bad"}"><div class="grow">${esc(r.message)}${r.ok?" — configurazione applicata. Trovi tutti i controlli nella Dashboard.":""}</div></div>`;
   }catch(e){ toast(e.message); }
 };
 $("pwBtn").onclick = async ()=>{

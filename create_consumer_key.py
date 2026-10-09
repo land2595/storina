@@ -22,6 +22,7 @@ RULES = [
     ("GET", "/order/catalog/*"),
     ("GET", "/me"),
     ("GET", "/me/*"),
+    ("GET", "/auth/currentCredential"),
 ]
 
 

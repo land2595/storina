@@ -170,6 +170,7 @@ class Orderer:
         # ---------------------------- CHECKOUT REALE -------------------------------
         self.on_step("checkout")
         log.warning("CHECKOUT: %s", desc)
+        t_checkout = time.time()
         try:
             order = self.client.post(
                 f"/order/cart/{cart_id}/checkout",
@@ -177,11 +178,11 @@ class Orderer:
                 waiveRetractationPeriod=self.cfg.waive_retractation,
             )
         except (ovhx.HTTPError, ovhx.NetworkError, ovhx.InvalidResponse, requests.RequestException) as e:
-            return self._uncertain(details, desc, e)
+            return self._uncertain(details, desc, e, t_checkout)
         except ovhx.APIError as e:
             status = _status(e)
             if status is None or status >= 500:
-                return self._uncertain(details, desc, e)
+                return self._uncertain(details, desc, e, t_checkout)
             self._drop(cart_id)
             if isinstance(e, AUTH_ERRORS):
                 return Result("fatal", f"Checkout rifiutato (permessi): {_err(e)}", details)
@@ -190,7 +191,7 @@ class Orderer:
                 return Result("stock_gone", f"Checkout fallito, stock esaurito: {_err(e)}", details)
             return Result("fatal", f"Checkout fallito: {_err(e)}", details)
         except Exception as e:  # qualunque altro imprevisto: l'ordine potrebbe essere partito
-            return self._uncertain(details, desc, e)
+            return self._uncertain(details, desc, e, t_checkout)
 
         # Da qui l'ordine è stato accettato: il lock va scritto qualunque cosa contenga la risposta.
         order = order if isinstance(order, dict) else {}
@@ -198,16 +199,37 @@ class Orderer:
             paid = ((order.get("prices") or {}).get("withTax") or {}).get("value")
         except AttributeError:
             paid = None
-        details.update(orderId=order.get("orderId"), amount_ttc=paid, url=order.get("url"))
+        details.update(orderId=order.get("orderId"), amount_ttc=paid, url=order.get("url"), ordered_at=t_checkout)
         self.state.write_lock({"status": "ordered", **details})
         return Result("ordered", desc, details)
 
     # ------------------------------------------------------------------------------
-    def _uncertain(self, details: dict, desc: str, e: Exception) -> Result:
+    def _uncertain(self, details: dict, desc: str, e: Exception, t_checkout: float) -> Result:
         # Non sappiamo se l'ordine è stato creato: blocchiamo tutto per non rischiare un doppione.
-        self.state.write_lock({"status": "uncertain", "error": _err(e), **details})
-        return Result("uncertain", f"Esito checkout sconosciuto ({_err(e)}) per {desc}. "
-                                   "Verifica su https://www.ovh.com/manager/#/dedicated/billing/orders", details)
+        self.state.write_lock({"status": "uncertain", "error": _err(e), "ordered_at": t_checkout, **details})
+        msg = f"Esito checkout sconosciuto ({_err(e)}) per {desc}."
+        # Proviamo a ritrovare l'ordine tra quelli appena creati sull'account.
+        from .actions import find_recent_orders
+
+        for attempt in range(3):
+            try:
+                ids = find_recent_orders(self.client, t_checkout)
+            except Exception as err:
+                log.warning("Ricerca ordini recenti fallita (%s), tentativo %d/3", type(err).__name__, attempt + 1)
+                time.sleep(5)
+                continue
+            if len(ids) == 1:
+                details["probable_orderId"] = ids[0]
+                self.state.update_lock(probable_orderId=ids[0])
+                msg += f" Trovato un ordine appena creato: #{ids[0]} (probabilmente questo)."
+            elif ids:
+                self.state.update_lock(recent_orders=ids)
+                msg += f" Ordini creati negli ultimi minuti: {', '.join(map(str, ids))}."
+            else:
+                msg += " Nessun ordine nuovo trovato sull'account: probabilmente non è partito."
+            break
+        msg += " Verifica su https://www.ovh.com/manager/#/dedicated/billing/orders"
+        return Result("uncertain", msg, details)
 
     def _drop(self, cart_id: str | None) -> None:
         if cart_id:

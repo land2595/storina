@@ -27,6 +27,7 @@ from .catalog import CatalogProvider
 from .hub import Hub, HubLogHandler, Runtime
 from .notifier import Notifier
 from .state import State
+from .tracker import FINAL, OrderTracker
 
 log = logging.getLogger("ovh-ks-sniper")
 
@@ -41,6 +42,18 @@ class _Locked(Exception):
 
 class _Reload(Exception):
     pass
+
+
+CHECKS_EVERY = 6 * 3600  # s tra due giri di controlli preventivi
+
+
+def _track_from_lock(tracker: OrderTracker, lock: dict | None) -> None:
+    """Riprende a seguire l'ordine indicato nel lock (anche dopo un riavvio)."""
+    if not lock:
+        return
+    oid = lock.get("orderId") or lock.get("probable_orderId")
+    if oid and (lock.get("payment") or {}).get("status") not in FINAL:
+        tracker.start(oid, lock.get("ordered_at"))
 
 
 def _session() -> requests.Session:
@@ -114,6 +127,8 @@ def main(argv: list[str]) -> int:
         web.start(rt, int(os.getenv("WEB_PORT") or 8765))
 
     notifier = Notifier()
+    tracker = OrderTracker(rt, notifier)
+    rt.tracker = tracker
     stats = {"start": datetime.now(), "polls": 0, "errors": 0, "last_error": "", "restocks": 0}
     while not rt.stop:
         rt.reload_requested = False
@@ -136,6 +151,8 @@ def main(argv: list[str]) -> int:
             info = state.lock() or {}
             log.warning("Lock ordine presente (%s): nessun nuovo ordine.", info)
             hub.update(state="locked", lock=info)
+            if cfg.has_credentials:
+                _track_from_lock(tracker, info)
             _idle(rt, state.is_locked, f"{state.lock_path} presente")
             hub.update(lock=None)
             continue
@@ -163,6 +180,8 @@ def main(argv: list[str]) -> int:
             rt.sleep(60)  # nel caso il file halt non sia scrivibile
         except _Locked:
             hub.update(attempt=None)
+            if cfg.has_credentials:
+                _track_from_lock(tracker, state.lock())
         except Exception:
             log.exception("Errore inatteso nel ciclo principale: riparto tra 60s")
             hub.update(state="error", attempt=None)
@@ -192,18 +211,37 @@ def loop(cfg, rt: Runtime, notifier: Notifier, stats: dict) -> None:
     hub.update(state="avvio", attempt=None)
 
     carts = orderer = None
-    if cfg.has_credentials:
-        client = make_client(cfg)
-        try:
-            ok, msg = actions.check_account(client)
-        except Exception as e:
-            hub.update(account={"ok": False, "message": f"Errore temporaneo: {type(e).__name__}",
-                                "checked_at": time.time()})
-            raise
-        hub.update(account={"ok": ok, "message": msg, "checked_at": time.time()})
-        (log.info if ok else log.error)(msg)
-        if not ok and not cfg.dry_run:
-            raise _Halt(f"account non pronto: {msg}")
+    last_fails: set[str] = set()
+    last_logged: set[str] = set()
+
+    def run_checks(first: bool = False) -> None:
+        """Controlli preventivi: in LIVE un problema critico ferma tutto prima che si arrivi a ordinare."""
+        nonlocal last_fails, last_logged
+        r = actions.readiness(cfg, client, offers=hub.snapshot().get("offers"), attempts=hub.attempts_list())
+        hub.update(checks=r, account=actions.account_summary(r))
+        problems = {f"{c['status']}|{c['label']}|{c['detail']}" for c in r["checks"] if c["status"] in ("fail", "warn")}
+        for key in sorted(problems - last_logged):  # nei log solo le novità
+            status, label, detail = key.split("|", 2)
+            (log.error if status == "fail" else log.warning)("Controllo %s: %s", label, detail)
+        if last_logged and not problems:
+            log.info("Controlli: tutto a posto")
+        last_logged = problems
+        fails = {f"{c['label']}: {c['detail']}" for c in r["checks"] if c["status"] == "fail"}
+        if fails - last_fails:
+            notifier.send("🩺 Controlli non superati:\n• " + "\n• ".join(sorted(fails)))
+        elif last_fails and not fails and not first:
+            notifier.send("🩺 Tutti i controlli ora sono superati")
+        last_fails = fails
+        if not cfg.dry_run:
+            if r["critical"]:
+                raise _Halt("controlli non superati: " + "; ".join(r["critical"]))
+            if r["transient"]:
+                raise RuntimeError("controlli non completati per un errore temporaneo")
+
+    client = make_client(cfg) if cfg.has_credentials else None
+    run_checks(first=True)
+    next_checks = time.time()  # ripetuti dopo il primo controllo disponibilità (per i requisiti)
+    if client is not None:
         carts = CartManager(cfg, client)
         carts.ensure_ready()
         hub.update(cart=carts.info())
@@ -215,8 +253,7 @@ def loop(cfg, rt: Runtime, notifier: Notifier, stats: dict) -> None:
     elif not cfg.dry_run:
         raise _Halt("DRY_RUN disattivato ma credenziali OVH mancanti")
     else:
-        hub.update(account={"ok": False, "message": "Credenziali OVH non impostate: solo monitoraggio",
-                            "checked_at": time.time()}, cart=None)
+        hub.update(cart=None)
         log.warning("Credenziali OVH assenti: solo monitoraggio (nessun carrello di prova).")
 
     try:
@@ -365,6 +402,10 @@ def loop(cfg, rt: Runtime, notifier: Notifier, stats: dict) -> None:
                     break
 
         # 3) Manutenzione fuori dal percorso critico ---------------------------------
+        if rt.checks_requested or time.time() >= next_checks:
+            rt.checks_requested = False
+            next_checks = time.time() + CHECKS_EVERY
+            run_checks()
         if carts is not None:
             carts.ensure_ready()
             hub.update(cart=carts.info())

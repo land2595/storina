@@ -110,6 +110,8 @@ class Runtime:
         self.stop = False
         self.reload_requested = False
         self.poll_now = False
+        self.checks_requested = False
+        self.tracker = None
 
     def request_reload(self) -> None:
         self.reload_requested = True

@@ -245,6 +245,7 @@ class Handler(BaseHTTPRequestHandler):
         routes = {
             "/api/config": self._save_config,
             "/api/actions/check-account": self._check_account,
+            "/api/actions/telegram-test": self._telegram_test,
             "/api/actions/consumer-key": self._consumer_key,
             "/api/actions/test-cart": self._test_cart,
             "/api/actions/poll-now": self._poll_now,
@@ -306,16 +307,36 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"ok": True, "changed": sorted(set(changed))})
 
     def _check_account(self, data: dict) -> None:
+        """Esegue tutti i controlli preventivi (credenziali, permessi, pagamento, debiti, Telegram...)."""
         try:
             cfg = config_mod.load()
         except config_mod.ConfigError as e:
             return self._err(str(e))
-        res = actions.check_account_safe(cfg)
-        self.rt.hub.update(account=res)
-        (log.info if res["ok"] else log.warning)("Verifica account dalla web UI: %s", res["message"])
-        if res["ok"] and data.get("apply"):
+        hub = self.rt.hub
+        r = actions.readiness(cfg, offers=hub.snapshot().get("offers"), attempts=hub.attempts_list())
+        summary = actions.account_summary(r)
+        hub.update(checks=r, account=summary)
+        failed = [c for c in r["checks"] if c["status"] == "fail"]
+        log.info("Controlli dalla web UI: %s", "tutti superati" if not failed else
+                 "; ".join(f"{c['label']}: {c['detail']}" for c in failed))
+        if data.get("apply") and summary["ok"]:
             self.rt.request_reload()
-        self._json(res)
+        self._json({**summary, "checks": r})
+
+    def _telegram_test(self, data: dict) -> None:
+        try:
+            cfg = config_mod.load()
+        except config_mod.ConfigError as e:
+            return self._err(str(e))
+        if not cfg.telegram_enabled:
+            return self._err("Salva prima bot token e chat ID")
+        ok, msg = actions.telegram_request(cfg, "sendMessage", {
+            "chat_id": cfg.telegram_chat_id,
+            "text": "✅ Storina: messaggio di prova. Le notifiche funzionano."})
+        log.info("Messaggio di prova Telegram: %s", "inviato" if ok else msg)
+        if not ok:
+            return self._err(msg + " — hai premuto Avvia sul bot? Il chat ID è corretto?")
+        self._json({"ok": True})
 
     def _consumer_key(self, data: dict) -> None:
         try:
