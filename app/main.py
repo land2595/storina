@@ -118,6 +118,11 @@ def main(argv: list[str]) -> int:
         return run_test_cart(cfg, state, argv[i + 1] if len(argv) > i + 1 else None)
 
     rt = Runtime(hub, state)
+    data_err = state.writable_error()
+    if data_err:
+        log.critical("%s: configurazione, password e lock NON vengono salvati. "
+                     "Su Unraid: chown -R 99:100 /mnt/user/appdata/ovh-ks-sniper e riavvia il container.", data_err)
+    hub.update(data_error=data_err)
     signal.signal(signal.SIGTERM, lambda *_: rt.request_stop())
     signal.signal(signal.SIGINT, lambda *_: rt.request_stop())
 

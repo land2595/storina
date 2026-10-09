@@ -39,6 +39,19 @@ class State:
         self.heartbeat_path = self.dir / "heartbeat"
         self._locked_in_memory = False
 
+    def writable_error(self) -> str | None:
+        """None se la cartella dati è scrivibile, altrimenti il motivo."""
+        probe = self.dir / ".write-test"
+        try:
+            with open(probe, "w", encoding="utf-8") as f:
+                f.write("ok")
+                f.flush()
+                os.fsync(f.fileno())
+            probe.unlink()
+            return None
+        except OSError as e:
+            return f"{self.dir} non scrivibile ({e.strerror or type(e).__name__})"
+
     # --- lock ordine (requisito 3) -------------------------------------------------
     def lock(self) -> dict | None:
         data = _read_json(self.lock_path)

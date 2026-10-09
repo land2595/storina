@@ -74,7 +74,7 @@ def check_account_safe(cfg: Config) -> dict:
     return {"ok": ok, "message": msg, "checked_at": time.time()}
 
 
-CRITICAL_CHECKS = ("credentials", "consumer_key", "account", "payment")
+CRITICAL_CHECKS = ("data", "credentials", "consumer_key", "account", "payment")
 
 
 def _rule_covers(rule: dict, method: str, path: str) -> bool:
@@ -117,6 +117,16 @@ def readiness(cfg: Config, client=None, offers: list[dict] | None = None,
 
     def add(cid: str, label: str, status: str, detail: str) -> None:
         checks.append({"id": cid, "label": label, "status": status, "detail": detail})
+
+    # 0) cartella dati scrivibile: senza, il lock dopo un ordine non sopravvive a un riavvio
+    from .state import State
+
+    err = State(cfg.data_dir).writable_error()
+    if err:
+        add("data", "Cartella dati", "fail", f"{err}: configurazione e lock non vengono salvati. "
+                                              "Su Unraid: chown -R 99:100 /mnt/user/appdata/ovh-ks-sniper")
+    else:
+        add("data", "Cartella dati", "ok", f"{cfg.data_dir} scrivibile")
 
     def api_error(cid: str, label: str, e: Exception) -> None:
         nonlocal transient_err

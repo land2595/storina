@@ -409,6 +409,8 @@ setInterval(()=>{ if(!$("appView").classList.contains("hidden")) tick(); }, 1000
 
 function renderBanners(){
   const b=[];
+  if(S.data_error) b.push(`<div class="banner bad"><div class="grow"><b>⛔ Cartella dati non scrivibile:</b> ${esc(S.data_error)}.
+      Configurazione, password e lock non vengono salvati. Su Unraid esegui <span class="mono">chown -R 99:100 /mnt/user/appdata/ovh-ks-sniper</span> e riavvia il container.</div></div>`);
   if(S.lock){
     const pay = (S.order_track || S.lock.payment || {}).status;
     const unpaid = pay==="notPaid" || pay==="cancelled" || pay==="cancelling";

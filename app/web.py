@@ -214,6 +214,17 @@ class Handler(BaseHTTPRequestHandler):
 
     # --- POST --------------------------------------------------------------------------
     def do_POST(self):
+        try:
+            self._post()
+        except OSError as e:
+            log.error("Scrittura nella cartella dati fallita: %s", e)
+            self._err(f"Impossibile salvare nella cartella dati ({e.strerror or type(e).__name__}). "
+                      "Su Unraid: chown -R 99:100 /mnt/user/appdata/ovh-ks-sniper e riavvia il container.", 500)
+        except Exception as e:
+            log.exception("Errore nella richiesta %s", self.path)
+            self._err(f"errore interno: {type(e).__name__}", 500)
+
+    def _post(self):
         path = urlparse(self.path).path
         data = self._body()
         if data is None:
@@ -256,11 +267,7 @@ class Handler(BaseHTTPRequestHandler):
         fn = routes.get(path)
         if not fn:
             return self._err("non trovato", 404)
-        try:
-            fn(data)
-        except Exception as e:
-            log.exception("Errore nell'azione %s", path)
-            self._err(f"errore interno: {type(e).__name__}", 500)
+        fn(data)
 
     # --- azioni ------------------------------------------------------------------------
     def _save_config(self, data: dict) -> None:
