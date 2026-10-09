@@ -16,7 +16,7 @@ Valori verificati sull'API il 9/10/2026: la configurazione 4×4 TB + 500 GB NVMe
 ## Installazione su Unraid
 
 L'immagine è pubblicata automaticamente su GitHub Container Registry a ogni push su `main`
-(`ghcr.io/land2595/storina:latest`, amd64 e arm64).
+(`ghcr.io/land2595/storina:latest`, linux/amd64).
 
 1. Crea le cartelle (quella dei dati deve appartenere a `99:100`, l'utente del container):
    ```bash
