@@ -1,0 +1,15 @@
+services:
+  ovh-ks-sniper:
+    build: .
+    image: ovh-ks-sniper:latest
+    container_name: ovh-ks-sniper
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      # Su Unraid: lock, stato e log persistenti in appdata
+      - /mnt/user/appdata/ovh-ks-sniper:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
