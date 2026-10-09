@@ -243,8 +243,13 @@ def readiness(cfg: Config, client=None, offers: list[dict] | None = None,
     if not tests:
         add("test", "Test carrello", "warn", "mai eseguito: usa “Avvia test” prima di passare al reale")
     elif tests[-1].get("kind") == "dry_run":
+        note = " (senza datacenter: nessuno stock)" if (tests[-1].get("details") or {}).get("dc_skipped") else ""
         add("test", "Test carrello", "ok",
-            "ultimo test riuscito il " + datetime.fromtimestamp(tests[-1]["ts"]).strftime("%d/%m %H:%M"))
+            "ultimo test riuscito il " + datetime.fromtimestamp(tests[-1]["ts"]).strftime("%d/%m %H:%M") + note)
+    elif tests[-1].get("kind") == "test_partial":
+        step = (tests[-1].get("details") or {}).get("step", "?")
+        add("test", "Test carrello", "warn",
+            f"verificato fino a «{step}»: oltre serve lo stock, riprova quando il server è disponibile")
     else:
         add("test", "Test carrello", "fail", f"ultimo test fallito: {tests[-1].get('message')}")
 

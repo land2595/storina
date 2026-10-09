@@ -276,7 +276,7 @@ const STATE_LABEL = {avvio:["Avvio","info"],monitoring:["Monitoraggio attivo","o
   locked:["Ordine fatto · bloccato","ok"],halted:["Fermo per errore","bad"],paused:["In pausa","warn"],
   config_error:["Configurazione non valida","bad"],error:["Errore · riavvio","bad"]};
 const KIND = {ordered:["Ordinato","ok"],dry_run:["Dry-run OK","info"],stock_gone:["Stock esaurito","warn"],rejected:["Non conforme",""],
-  prep_error:["Errore tecnico","warn"],fatal:["Errore bloccante","bad"],uncertain:["Esito incerto","bad"]};
+  prep_error:["Errore tecnico","warn"],test_partial:["Test parziale (senza stock)","info"],fatal:["Errore bloccante","bad"],uncertain:["Esito incerto","bad"]};
 const NOT_AV = new Set(["unavailable","comingSoon","unknown"]);
 
 let S = {}, attempts = [], logs = [], lastId = 0, es = null, cfgFields = [], cfgDirty = {}, cfgReset = new Set();

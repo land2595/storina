@@ -28,8 +28,18 @@ AUTH_ERRORS = (
 )
 # Nessun codice d'errore documentato per "stock esaurito": si ricontrolla la disponibilità
 # e, in subordine, si cercano queste parole nel messaggio.
+# Messaggio reale visto da OVH senza stock (BadParametersError 400):
+#   "24skstor01-v1.ram-16g-ecc-2133.hybridsoftraid-4x4000sa-1x500nvme is not available in gra"
 STOCK_HINTS = ("stock", "unavailable", "not available", "no longer available", "indisponible",
                "plus disponible", "non disponibil", "out of")
+
+
+def is_stock_error(e: Exception) -> bool:
+    """Errore 4xx di OVH che indica che il server non è (più) disponibile."""
+    if not isinstance(e, ovhx.APIError) or isinstance(e, AUTH_ERRORS):
+        return False
+    status = _status(e)
+    return (status is None or 400 <= status < 500) and any(h in str(e).lower() for h in STOCK_HINTS)
 
 
 @dataclass
@@ -125,17 +135,26 @@ class Orderer:
         self.avail = avail
         self.state = state
         self.carts = carts
-        self.on_step = on_step or (lambda step: None)
+        self._step = ""
+        self._dc_skipped = ""
+        user_cb = on_step or (lambda step: None)
+
+        def mark(step: str) -> None:
+            self._step = step
+            user_cb(step)
+
+        self.on_step = mark
 
     # ------------------------------------------------------------------------------
     def attempt(self, offer: Offer, cand: Candidate, force_dry_run: bool = False) -> Result:
         dry_run = self.cfg.dry_run or force_dry_run
         t0 = time.monotonic()
         cart_id: str | None = None
+        self._dc_skipped = ""
         try:
             self.on_step("carrello")
             cart_id = self.carts.take()
-            preview = self._build_cart(cart_id, offer, cand)
+            preview = self._build_cart(cart_id, offer, cand, test=force_dry_run)
         except _Reject as r:
             self._drop(cart_id)
             return Result("rejected", str(r))
@@ -144,7 +163,13 @@ class Orderer:
             return Result("fatal", f"Permessi/credenziali API: {_err(e)}")
         except Exception as e:
             self._drop(cart_id)
-            if not force_dry_run and still_available(self.avail, offer) is False:
+            if force_dry_run and is_stock_error(e):
+                # Test senza stock: tutto ciò che precede questo passaggio ha funzionato.
+                return Result("test_partial",
+                              f"Flusso verificato fino al passaggio «{self._step}»: lì OVH risponde che il server "
+                              f"non è disponibile in {offer.datacenter.upper()}, normale finché non c'è stock. "
+                              f"({_err(e)})", {"step": self._step})
+            if not force_dry_run and (is_stock_error(e) or still_available(self.avail, offer) is False):
                 return Result("stock_gone", f"Stock esaurito durante la preparazione ({_err(e)})")
             return Result("prep_error", f"Errore preparazione carrello: {_err(e)}")
 
@@ -157,6 +182,10 @@ class Orderer:
         }
         desc = (f"{cand.fqn} @ {offer.datacenter}: {cand.storage_tb:g} TB, canone {cand.monthly_ttc:.2f}€, "
                 f"primo pagamento {first:.2f}€ IVA incl.")
+        if self._dc_skipped:
+            details["dc_skipped"] = True
+            desc += " — datacenter non impostato: senza stock OVH lo rifiuta, il resto è verificato"
+
 
         if self.state.is_locked():
             self._drop(cart_id)
@@ -235,7 +264,7 @@ class Orderer:
         if cart_id:
             self.carts.delete(cart_id)
 
-    def _build_cart(self, cart_id: str, offer: Offer, cand: Candidate) -> dict:
+    def _build_cart(self, cart_id: str, offer: Offer, cand: Candidate, test: bool = False) -> dict:
         c, cfg = self.client, self.cfg
         catalog = self.catalogs.get()
         base = f"/order/cart/{cart_id}"
@@ -281,7 +310,16 @@ class Orderer:
                 continue
             if allowed.get(label) and value not in allowed[label]:
                 raise _Reject(f"valore {value} non ammesso per {label} (ammessi: {allowed[label]})")
-            c.post(f"{base}/item/{item_id}/configuration", label=label, value=value)
+            try:
+                c.post(f"{base}/item/{item_id}/configuration", label=label, value=value)
+            except ovhx.APIError as e:
+                # Nel test senza stock OVH rifiuta il datacenter: lo saltiamo per arrivare comunque
+                # all'anteprima dei prezzi. In un tentativo reale l'errore risale (stock esaurito).
+                if not (test and label == "dedicated_datacenter" and is_stock_error(e)):
+                    raise
+                self._dc_skipped = _err(e)
+                log.warning("Test: OVH rifiuta il datacenter %s (nessuno stock), proseguo senza: %s",
+                            value, _err(e))
 
         # Anteprima checkout: verifica prezzi reali (requisito 2) e storage (requisito 1).
         self.on_step("anteprima")
